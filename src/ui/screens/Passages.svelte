@@ -1,13 +1,14 @@
 <script lang="ts">
   import { useApp } from '../../app/context';
   import PassageForm from '../PassageForm.svelte';
+  import { isDiscarded } from '../../domain/types';
 
   const app = useApp();
   let adding = $state(false);
   let editingId = $state<string | undefined>(undefined);
   let confirmDeleteId = $state<string | undefined>(undefined);
 
-  const readingsUsing = (passageId: string) => app.readings.filter((r) => r.passageId === passageId && r.completion !== 'discarded').length;
+  const readingsUsing = (passageId: string) => app.readings.filter((r) => r.passageId === passageId && !isDiscarded(r)).length;
 </script>
 
 <main class="page">

@@ -36,9 +36,9 @@ describe('identifyPassage', () => {
     expect(identifyPassage(tokenize(CAMP_CLEAN), many).candidates.length).toBeLessThanOrEqual(3);
   });
 
-  test('an unrelated transcript is not assigned to anything', () => {
+  test('an unrelated transcript is neither assigned nor offered candidates', () => {
     const result = identifyPassage(tokenize('twinkle twinkle little star how I wonder what you are'), [ship, camp]);
-    expect(result.autoAssigned).toBe(false);
+    expect(result).toEqual({ candidates: [], autoAssigned: false });
   });
 
   test('an empty passage list gives no candidates', () => {

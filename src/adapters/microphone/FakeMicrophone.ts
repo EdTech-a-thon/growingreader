@@ -1,4 +1,4 @@
-import type { Capture, Microphone, MicrophoneSession } from './Microphone';
+import type { Capture, Microphone, MicrophoneHandle } from './Microphone';
 import { SAMPLE_RATE } from '../../domain/types';
 
 /** Test microphone: the test pushes levels and decides what the recording contains. */
@@ -9,7 +9,7 @@ export class FakeMicrophone implements Microphone {
   recording = false;
   opened = false;
 
-  async open(onLevel: (level: number) => void): Promise<MicrophoneSession> {
+  async open(onLevel: (level: number) => void): Promise<MicrophoneHandle> {
     if (this.failWith) throw this.failWith;
     this.onLevel = onLevel;
     this.opened = true;

@@ -174,7 +174,7 @@ nav.topbar .grow {
   flex: 1;
 }
 
-.student-list {
+.roster {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0.75rem;
@@ -183,8 +183,14 @@ nav.topbar .grow {
   margin: 0;
 }
 
-.student-list button {
-  width: 100%;
+.roster li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.roster .start-reading {
+  flex: 1;
   text-align: left;
   padding: 1rem;
   display: flex;
@@ -193,7 +199,12 @@ nav.topbar .grow {
   min-height: 72px;
 }
 
-.student-list .name {
+.roster .history {
+  font-size: 0.9rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.roster .name {
   font-size: 1.15rem;
   font-weight: 600;
 }

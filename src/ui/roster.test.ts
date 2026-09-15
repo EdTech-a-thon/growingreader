@@ -26,7 +26,7 @@ describe('Roster', () => {
   test('archiving a student removes them from the pick list but keeps them in storage', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace\nGrace Hopper');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await h.user.click(screen.getByRole('button', { name: /history for Ada Lovelace/i }));
     await h.user.click(screen.getByRole('button', { name: /archive student/i }));
     expect(screen.getByRole('heading', { name: /roster/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ada Lovelace' })).not.toBeInTheDocument();

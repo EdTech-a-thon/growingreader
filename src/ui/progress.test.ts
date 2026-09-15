@@ -28,14 +28,14 @@ async function seeded() {
   await storage.putStudent({ id: 's1', firstName: 'Ada', lastName: 'Lovelace', archived: false, createdAt: 0 });
   await storage.putPassage({ id: 'camp', title: 'Camp', text: 'x', wordCount: 100, createdAt: 0 });
   await storage.putPassage({ id: 'ship', title: 'Ship', text: 'y', wordCount: 120, createdAt: 0 });
-  await storage.putReading(reading('r1', day(0), 100)); // 60 wpm
-  await storage.putReading(reading('r2', day(7), 80)); // 75 wpm
-  await storage.putReading(reading('r3', day(7) + 3_600_000, 75, { errors: 5 })); // 80 wpm, 76 wcpm, same day
-  await storage.putReading(reading('r4', day(14), 120, { passageId: 'ship' })); // 60 wpm on the harder passage
+  await storage.putReading(reading('r1', day(0), 100)); // 60 words per minute
+  await storage.putReading(reading('r2', day(7), 80)); // 75 words per minute
+  await storage.putReading(reading('r3', day(7) + 3_600_000, 75, { errors: 5 })); // 80 words per minute, 76 words correct per minute, same day
+  await storage.putReading(reading('r4', day(14), 120, { passageId: 'ship' })); // 60 words per minute on the harder passage
   await storage.putReading(reading('r5', day(21), 50, { completion: 'incomplete' }));
   await storage.putReading(reading('r6', day(22), 50, { completion: 'pending' }));
   const h = await renderApp({ storage });
-  await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+  await h.user.click(screen.getByRole('button', { name: /history for Ada Lovelace/i }));
   return h;
 }
 

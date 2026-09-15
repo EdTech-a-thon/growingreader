@@ -1,15 +1,14 @@
-import { screen, waitFor } from '@testing-library/svelte';
+import { screen, waitFor, within } from '@testing-library/svelte';
 import { renderApp, pasteRoster, pastePassage, goTo, speechCapture, recordReading, unlockDoneScreen, tapStart } from '../test/harness';
 import { FakeMicrophone } from '../adapters/microphone/FakeMicrophone';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { CAMP_TEXT } from '../test/fixtures/passages';
 
 describe('Handing the device to a student', () => {
-  test('tapping a student then New reading lands on the start screen with their name and a level meter', async () => {
+  test('tapping a student lands straight on the start screen with their name and a level meter', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
     expect(screen.getByRole('meter', { name: /microphone level/i })).toBeInTheDocument();
     expect(h.microphone.opened).toBe(true);
@@ -19,7 +18,6 @@ describe('Handing the device to a student', () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     await screen.findByText(/waiting for sound/i);
     expect(screen.getByRole('button', { name: /^start$/i })).toBeDisabled();
     h.microphone.emitLevel(0.01);
@@ -34,7 +32,6 @@ describe('Handing the device to a student', () => {
     const h = await renderApp({ microphone });
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/Permission denied/);
   });
 
@@ -42,7 +39,6 @@ describe('Handing the device to a student', () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     await tapStart(h);
     expect(screen.getByText(/recording/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^done$/i })).toBeInTheDocument();
@@ -55,7 +51,6 @@ describe('Handing the device to a student', () => {
     await pasteRoster(h, 'Ada Lovelace');
     h.microphone.capture = speechCapture(45);
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     expect(await screen.findByText(/nice work/i)).toBeInTheDocument();
@@ -70,7 +65,6 @@ describe('Handing the device to a student', () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     const unlock = await screen.findByRole('button', { name: /hold to unlock/i });
@@ -97,9 +91,9 @@ describe('Handing the device to a student', () => {
     await goTo(h, 'Roster');
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /new reading with a passage/i }));
-    await h.user.click(screen.getByRole('button', { name: 'Camp' }));
-    expect(screen.getByText('Camp')).toBeInTheDocument();
+    await h.user.click(screen.getByRole('button', { name: /choose passage/i }));
+    await h.user.click(within(screen.getByRole('group', { name: /^passage$/i })).getByRole('button', { name: 'Camp' }));
+    expect(screen.getByText(/^Camp/)).toBeInTheDocument();
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     await unlockDoneScreen(h);

@@ -3,15 +3,14 @@
   import { displayName } from '../../domain/roster';
   import { activeDuration, formatRate, formatSeconds, rate } from '../../domain/rate';
   import { formatDateTime } from '../format';
+  import { isAnalysing, type CompletionState } from '../../domain/types';
   import Chart from '../Chart.svelte';
 
   let { studentId }: { studentId: string } = $props();
   const app = useApp();
   const student = $derived(app.student(studentId));
   const readings = $derived(app.readingsFor(studentId));
-  let choosingPassage = $state(false);
-
-  const completionLabel: Record<string, string> = { pending: 'Awaiting review', complete: 'Complete', incomplete: 'Incomplete', discarded: 'Discarded' };
+  const completionLabel: Record<CompletionState, string> = { pending: 'Awaiting review', complete: 'Complete', incomplete: 'Incomplete', discarded: 'Discarded' };
 
   async function archive() {
     await app.archiveStudent(studentId);
@@ -32,20 +31,7 @@
     </div>
 
     <div class="card">
-      <div class="row">
-        <button class="primary" onclick={() => app.go({ name: 'start', studentId })}>New reading</button>
-        {#if app.passages.length > 0}
-          <button onclick={() => (choosingPassage = !choosingPassage)}>New reading with a passage…</button>
-        {/if}
-      </div>
-      {#if choosingPassage}
-        <p class="small muted" style="margin-top:0.75rem">Tap the passage they will read:</p>
-        <div class="choices">
-          {#each app.passages as passage (passage.id)}
-            <button onclick={() => app.go({ name: 'start', studentId, passageId: passage.id })}>{passage.title}</button>
-          {/each}
-        </div>
-      {/if}
+      <button class="primary" onclick={() => app.go({ name: 'start', studentId })}>New reading</button>
     </div>
 
     <section class="card">
@@ -70,7 +56,7 @@
                 <td>{passage?.title ?? '—'}</td>
                 <td>{formatSeconds(activeDuration(r))}</td>
                 <td>{formatRate(rate(r, passage))}</td>
-                <td>{completionLabel[r.completion]}{#if r.analysis !== 'done' && r.analysis !== 'failed'}<span class="small muted"> · analysing</span>{/if}</td>
+                <td>{completionLabel[r.completion]}{#if isAnalysing(r)}<span class="small muted"> · analysing</span>{/if}</td>
                 <td><button class="link" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></td>
               </tr>
             {/each}

@@ -1,5 +1,5 @@
 import type { Bounds, CompletionAssessment, TranscriptWord } from '../domain/types';
-import { tokenize } from './words';
+import { countWords, tokenize } from './words';
 
 // Guesses until tuned on real recordings.
 const MATCH = 1.0;
@@ -16,13 +16,13 @@ export const COMPLETION_COVERAGE = 0.9;
 export interface AlignedPair {
   /** Index into the transcript words. */
   word: number;
-  /** Index into the passage's word tokens. */
-  passageToken: number;
+  /** Index into the passage's words, counted the way the word count counts them. */
+  passageWord: number;
 }
 
 export interface Alignment {
   pairs: AlignedPair[];
-  passageTokenCount: number;
+  passageWordCount: number;
 }
 
 function editDistanceAtMostOne(a: string, b: string): boolean {
@@ -58,12 +58,16 @@ function tokensMatch(a: string, b: string): boolean {
  * for a modest cost, so "Sam and Pam went to — Sam and Pam went to camp" still lands on camp.
  */
 export function alignToPassage(words: TranscriptWord[], passageText: string): Alignment {
-  const passage = tokenize(passageText);
+  // A hyphenated passage word is one word to the teacher but may be several tokens to the aligner.
+  const passageWords = passageText.split(/\s+/).filter((w) => countWords(w) > 0);
+  const passage: string[] = [];
+  const passageWordOf: number[] = [];
+  passageWords.forEach((w, i) => tokenize(w).forEach((t) => (passage.push(t), passageWordOf.push(i))));
   const P = passage.length;
   const tokens: Array<{ text: string; word: number }> = [];
   words.forEach((w, word) => tokenize(w.text).forEach((text) => tokens.push({ text, word })));
   const T = tokens.length;
-  if (P === 0 || T === 0) return { pairs: [], passageTokenCount: P };
+  if (P === 0 || T === 0) return { pairs: [], passageWordCount: passageWords.length };
 
   // score[i][j+1]: best score after i transcript tokens with last match at passage j (j = -1 → none yet).
   const W = P + 1;
@@ -138,18 +142,18 @@ export function alignToPassage(words: TranscriptWord[], passageText: string): Al
   for (let i = T; i > 0; i--) {
     const b = back[i * W + s];
     if (b === -1) continue;
-    pairs.push({ word: tokens[i - 1].word, passageToken: s - 1 });
+    pairs.push({ word: tokens[i - 1].word, passageWord: passageWordOf[s - 1] });
     s = b;
   }
   pairs.reverse();
-  return { pairs, passageTokenCount: P };
+  return { pairs, passageWordCount: passageWords.length };
 }
 
 /** "Reached word N of M" from the furthest aligned passage token; flags probable incompletion below the coverage floor. */
 export function assessCompletion(words: TranscriptWord[], passageText: string): CompletionAssessment {
   const alignment = alignToPassage(words, passageText);
-  const ofWords = alignment.passageTokenCount;
-  const reachedWord = alignment.pairs.reduce((max, p) => Math.max(max, p.passageToken + 1), 0);
+  const ofWords = alignment.passageWordCount;
+  const reachedWord = alignment.pairs.reduce((max, p) => Math.max(max, p.passageWord + 1), 0);
   return { reachedWord, ofWords, probablyIncomplete: ofWords === 0 || reachedWord / ofWords < COMPLETION_COVERAGE };
 }
 

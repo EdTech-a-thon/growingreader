@@ -44,7 +44,9 @@ describe('Reviewing a reading', () => {
     await recordReading(h, 'Ada Lovelace');
     await waitFor(() => expect(screen.getByText('Camp', { selector: 'strong' })).toBeInTheDocument());
     expect(screen.getByText(/identified from the recording/i)).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(`reach word ${CAMP_WORDS} of ${CAMP_WORDS}`))).toBeInTheDocument();
+    expect(screen.getByText(/heard the student reach the end/i)).toBeInTheDocument();
+    // ADR-0002: nothing derived from the transcript is shown as a number.
+    expect(screen.getByRole('heading', { name: /^completion$/i }).parentElement).not.toHaveTextContent(/\d/);
   });
 
   test('the rate appears only after the teacher marks the reading complete, then from the passage word count', async () => {
@@ -158,6 +160,9 @@ describe('Reviewing a reading', () => {
     expect(within(timing()).getByRole('button', { name: /tap to tap: 1:00\.0/i })).toBeInTheDocument();
     expect(within(timing()).getByRole('button', { name: /trimmed silence: 58\.\d s/i })).toBeInTheDocument();
     expect(within(timing()).getByRole('button', { name: /first to last word/i })).toHaveAttribute('aria-pressed', 'true');
+    // Start and stop of each timing are visible, not hidden in a tooltip.
+    expect(within(timing()).getByRole('button', { name: /tap to tap/i })).toHaveTextContent('0.0 s → 60.0 s');
+    expect(within(timing()).getByRole('button', { name: /first to last word/i })).toHaveTextContent(/\d+\.\d s → \d+\.\d s/);
     await h.user.click(screen.getByRole('button', { name: /reset to tap-to-tap/i }));
     expect(within(timing()).getByRole('button', { name: /tap to tap/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(/time spent reading/i).parentElement).toHaveTextContent('1:00.0');
@@ -185,11 +190,14 @@ describe('Reviewing a reading', () => {
     await recordReading(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: /record again/i }));
     await h.user.click(screen.getByRole('button', { name: /^back$/i }));
-    await goTo(h, 'Roster');
     await recordReading(h, 'Ada Lovelace');
     expect(within(screen.getByRole('navigation')).getByRole('status')).toHaveTextContent(/analysing 2 readings/i);
+    await h.user.click(screen.getByRole('button', { name: /back to ada/i }));
+    await goTo(h, 'Roster');
+    expect(within(screen.getByLabelText(/still being analysed/i)).getAllByRole('listitem')).toHaveLength(2);
     transcriber.finish();
     await waitFor(() => expect(within(screen.getByRole('navigation')).queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByLabelText(/still being analysed/i)).not.toBeInTheDocument();
     const readings = await h.storage.listReadings();
     expect(readings.map((r) => r.analysis)).toEqual(['done', 'done']);
   });

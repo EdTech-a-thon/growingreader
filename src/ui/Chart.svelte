@@ -27,8 +27,25 @@
 
   const yMax = $derived(Math.max(20, ...points.map((p) => p.rate)) * 1.15);
 
-  // Equal spacing per reading rather than by time: repeated same-day readings must stay legible.
-  const x = (i: number) => PAD.left + (points.length === 1 ? (W - PAD.left - PAD.right) / 2 : (i / (points.length - 1)) * (W - PAD.left - PAD.right));
+  // Rate against date, but two readings minutes apart must still be two visible points:
+  // place by time, then push any point that lands too close to its predecessor to the right.
+  const MIN_GAP = 22;
+  const xs = $derived.by(() => {
+    const inner = W - PAD.left - PAD.right;
+    if (points.length === 1) return [PAD.left + inner / 2];
+    const t0 = points[0].reading.recordedAt;
+    const t1 = points[points.length - 1].reading.recordedAt;
+    const span = Math.max(1, t1 - t0);
+    const raw = points.map((p) => PAD.left + ((p.reading.recordedAt - t0) / span) * inner);
+    for (let i = 1; i < raw.length; i++) raw[i] = Math.max(raw[i], raw[i - 1] + MIN_GAP);
+    const overflow = raw[raw.length - 1] - (PAD.left + inner);
+    if (overflow > 0) {
+      const scale = inner / (inner + overflow);
+      for (let i = 0; i < raw.length; i++) raw[i] = PAD.left + (raw[i] - PAD.left) * scale;
+    }
+    return raw;
+  });
+  const x = (i: number) => xs[i];
   const y = (v: number) => PAD.top + (1 - v / yMax) * (H - PAD.top - PAD.bottom);
 
   const passageChanges = $derived(
@@ -47,7 +64,7 @@
   <p class="muted">No complete readings yet. Rates appear here once a reading is reviewed and marked complete.</p>
 {:else}
   <svg class="chart" viewBox="0 0 {W} {H}" role="img" aria-label="Rate over time: {points.length} readings">
-    {#each yTicks as t (t)}
+    {#each yTicks as t, i (i)}
       <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="#e6e9ec" />
       <text x={PAD.left - 8} y={y(t) + 4} text-anchor="end" font-size="12" fill="#5b6673">{t}</text>
     {/each}

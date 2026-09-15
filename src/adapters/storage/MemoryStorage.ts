@@ -1,4 +1,4 @@
-import type { Id, Passage, Reading, Settings, Student } from '../../domain/types';
+import type { Id, Passage, Reading, Settings, StorageUsage, Student } from '../../domain/types';
 import type { Snapshot, Storage } from './Storage';
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -10,7 +10,7 @@ export class MemoryStorage implements Storage {
   private readings = new Map<Id, Reading>();
   private audio = new Map<Id, Float32Array>();
   private settings: Settings = {};
-  usage: { usage: number; quota: number } | undefined = undefined;
+  usage: StorageUsage | undefined = undefined;
 
   async listStudents() {
     return [...this.students.values()].map(clone);

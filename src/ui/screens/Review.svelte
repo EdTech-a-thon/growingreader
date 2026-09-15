@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { useApp } from '../../app/context';
   import { displayName } from '../../domain/roster';
   import { activeDuration, activeSource, boundsFor, durationOf, formatRate, formatSeconds, rate, wordsCorrectPerMinute } from '../../domain/rate';
   import type { TimingSource } from '../../domain/types';
   import { formatDateTime } from '../format';
-  import { encodeWav, downloadBlob } from '../wav';
+  import { encodeWav } from '../wav';
+  import { downloadBlob } from '../download';
   import PassageForm from '../PassageForm.svelte';
 
   let { readingId }: { readingId: string } = $props();
@@ -23,25 +25,33 @@
   let errorsText = $state('');
   let noteText = $state('');
 
+  // Seed the text fields once per reading; later background saves must not clobber what the teacher is typing.
   $effect(() => {
-    errorsText = reading?.errors === undefined ? '' : String(reading.errors);
-    noteText = reading?.note ?? '';
+    void readingId;
+    untrack(() => {
+      errorsText = reading?.errors === undefined ? '' : String(reading.errors);
+      noteText = reading?.note ?? '';
+    });
   });
 
+  // Load audio once per reading (and again if it is deleted), not on every analysis-stage save.
+  const hasAudio = $derived(reading?.hasAudio ?? false);
   $effect(() => {
-    if (!reading?.hasAudio) {
+    if (!hasAudio) {
       audioUrl = undefined;
       return;
     }
     let cancelled = false;
+    let url: string | undefined;
     void app.audioFor(readingId).then((samples) => {
-      if (cancelled || !samples || !reading) return;
+      const sampleRate = untrack(() => reading?.sampleRate);
+      if (cancelled || !samples || !sampleRate) return;
       audioSamples = samples;
-      if (typeof URL.createObjectURL === 'function') audioUrl = URL.createObjectURL(encodeWav(samples, reading.sampleRate));
+      if (typeof URL.createObjectURL === 'function') audioUrl = url = URL.createObjectURL(encodeWav(samples, sampleRate));
     });
     return () => {
       cancelled = true;
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (url) URL.revokeObjectURL(url);
     };
   });
 
@@ -142,13 +152,9 @@
       <div class="choices" role="group" aria-label="Timing">
         {#each timingOptions as option (option.source)}
           {@const bounds = boundsFor(reading, option.source)}
-          <button
-            aria-pressed={activeSource(reading) === option.source}
-            disabled={!bounds}
-            onclick={() => app.setTiming(readingId, option.source)}
-            title={bounds ? `${bounds.start.toFixed(1)} s → ${bounds.end.toFixed(1)} s` : 'Not available yet'}
-          >
+          <button aria-pressed={activeSource(reading) === option.source} disabled={!bounds} onclick={() => app.setTiming(readingId, option.source)}>
             {option.label}{bounds ? `: ${formatSeconds(durationOf(bounds))}` : ''}
+            <span class="small muted" style="display:block">{bounds ? `${bounds.start.toFixed(1)} s → ${bounds.end.toFixed(1)} s` : 'not available yet'}</span>
           </button>
         {/each}
       </div>
@@ -208,11 +214,9 @@
       <h2>Completion</h2>
       {#if reading.completionAssessment}
         {#if reading.completionAssessment.probablyIncomplete}
-          <div class="notice">
-            The student may not have reached the end: the app heard up to word {reading.completionAssessment.reachedWord} of {reading.completionAssessment.ofWords}. Listen and decide.
-          </div>
+          <div class="notice">The student may not have reached the end of the passage. Listen and decide.</div>
         {:else}
-          <p class="small muted">The app heard the student reach word {reading.completionAssessment.reachedWord} of {reading.completionAssessment.ofWords}.</p>
+          <p class="small muted">The app heard the student reach the end of the passage.</p>
         {/if}
       {:else if reading.completion === 'pending'}
         <p class="small muted">Did they read the whole passage?</p>

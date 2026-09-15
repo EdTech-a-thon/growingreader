@@ -4,7 +4,7 @@ export interface Capture {
   sampleRate: number;
 }
 
-export interface MicrophoneSession {
+export interface MicrophoneHandle {
   /** Begin buffering samples. */
   start(): void;
   /** Stop buffering and hand back everything since start(). */
@@ -18,5 +18,5 @@ export interface MicrophoneSession {
  * `onLevel` receives a 0..1 signal level a few times a second until close().
  */
 export interface Microphone {
-  open(onLevel: (level: number) => void): Promise<MicrophoneSession>;
+  open(onLevel: (level: number) => void): Promise<MicrophoneHandle>;
 }

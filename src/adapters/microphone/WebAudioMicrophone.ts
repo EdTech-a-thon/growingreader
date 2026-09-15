@@ -1,4 +1,4 @@
-import type { Capture, Microphone, MicrophoneSession } from './Microphone';
+import type { Capture, Microphone, MicrophoneHandle } from './Microphone';
 import { SAMPLE_RATE } from '../../domain/types';
 import workletUrl from './recorder.worklet.ts?worker&url';
 
@@ -7,11 +7,17 @@ import workletUrl from './recorder.worklet.ts?worker&url';
  * model's rate; if the browser refuses, the capture reports the rate it actually used.
  */
 export class WebAudioMicrophone implements Microphone {
-  async open(onLevel: (level: number) => void): Promise<MicrophoneSession> {
+  async open(onLevel: (level: number) => void): Promise<MicrophoneHandle> {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
     });
-    const context = new AudioContext({ sampleRate: SAMPLE_RATE });
+    let context: AudioContext;
+    try {
+      context = new AudioContext({ sampleRate: SAMPLE_RATE });
+    } catch {
+      // Some devices cannot open a 16 kHz context; the capture then reports the rate it used.
+      context = new AudioContext();
+    }
     await context.audioWorklet.addModule(workletUrl);
     const source = context.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(context, 'recorder');

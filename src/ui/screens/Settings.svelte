@@ -1,9 +1,8 @@
 <script lang="ts">
   import { useApp } from '../../app/context';
-  import { displayName } from '../../domain/roster';
-  import { activeDuration, rate, wordsCorrectPerMinute } from '../../domain/rate';
+  import { readingsCsv } from '../../domain/csv';
   import { formatBytes, formatDate } from '../format';
-  import { downloadBlob } from '../wav';
+  import { downloadBlob } from '../download';
 
   const app = useApp();
   let importMessage = $state<string | undefined>(undefined);
@@ -27,35 +26,8 @@
     input.value = '';
   }
 
-  function csvCell(v: unknown) {
-    const s = v === undefined || v === null ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }
-
   function exportCsv() {
-    const header = ['student', 'date', 'passage', 'passage_words', 'seconds', 'words_per_minute', 'errors', 'words_correct_per_minute', 'completion', 'note'];
-    const rows = app.readings
-      .filter((r) => r.completion !== 'discarded')
-      .sort((a, b) => a.recordedAt - b.recordedAt)
-      .map((r) => {
-        const s = app.student(r.studentId);
-        const p = app.passage(r.passageId);
-        const wpm = rate(r, p);
-        const wcpm = wordsCorrectPerMinute(r, p);
-        return [
-          s ? displayName(s) : '',
-          new Date(r.recordedAt).toISOString(),
-          p?.title ?? '',
-          p?.wordCount ?? '',
-          activeDuration(r).toFixed(1),
-          wpm === undefined ? '' : wpm.toFixed(1),
-          r.errors ?? '',
-          wcpm === undefined ? '' : wcpm.toFixed(1),
-          r.completion,
-          r.note ?? '',
-        ];
-      });
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+    const csv = readingsCsv(app.students, app.passages, app.readings);
     downloadBlob(new Blob([csv], { type: 'text/csv' }), `reading-fluency-readings-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 </script>

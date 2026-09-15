@@ -6,6 +6,8 @@ import { tokenize } from './words';
 export const IDENTIFY_FLOOR = 0.35;
 /** How far the top passage must beat the runner-up to be auto-assigned. */
 export const IDENTIFY_MARGIN = 0.1;
+/** Below this a passage is not even worth offering as a candidate. */
+export const CANDIDATE_FLOOR = 0.2;
 const MAX_CANDIDATES = 3;
 
 /** Length of the longest common subsequence of two token lists. */
@@ -40,7 +42,7 @@ export function identifyPassage(transcriptTokens: string[], passages: Array<{ id
   const scored = passages
     .map((p) => ({ passageId: p.id, score: similarity(transcriptTokens, tokenize(p.text)) }))
     .sort((x, y) => y.score - x.score);
-  const candidates = scored.slice(0, MAX_CANDIDATES);
+  const candidates = scored.filter((c) => c.score >= CANDIDATE_FLOOR).slice(0, MAX_CANDIDATES);
   const [top, next] = candidates;
   const autoAssigned = !!top && top.score >= IDENTIFY_FLOOR && (next === undefined || top.score - next.score >= IDENTIFY_MARGIN);
   return { candidates, autoAssigned };

@@ -1,8 +1,8 @@
 import type { Storage, Snapshot } from '../adapters/storage/Storage';
-import type { Microphone, MicrophoneSession } from '../adapters/microphone/Microphone';
+import type { Microphone, MicrophoneHandle } from '../adapters/microphone/Microphone';
 import type { Transcriber } from '../adapters/transcriber/Transcriber';
-import { newId, type CompletionState, type Id, type Passage, type Reading, type Settings, type Student, type TimingChoice } from '../domain/types';
-import { parseName, parseRoster } from '../domain/roster';
+import { isAnalysing, isDiscarded, newId, type CompletionState, type Id, type Passage, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student, type TimingChoice } from '../domain/types';
+import { parseName, parseRoster, type ParsedName } from '../domain/roster';
 import { alignToPassage, assessCompletion, countWords, identifyPassage, passageSimilarity, refineTiming, tokenize, trimSilence } from '../analysis';
 
 export interface AppDeps {
@@ -45,16 +45,16 @@ export class App {
   ready = $state(false);
   model = $state<ModelStatus>({ state: 'loading', progress: 0 });
   /** A reading whose tab closed before Done; reported once on the roster. */
-  lostReading = $state<{ studentId: Id; startedAt: number } | undefined>(undefined);
+  lostReading = $state<ReadingInProgress | undefined>(undefined);
   micLevel = $state(0);
   micOpen = $state(false);
   micHeardSound = $state(false);
   micError = $state<string | undefined>(undefined);
-  storageUsage = $state<{ usage: number; quota: number } | undefined>(undefined);
+  storageUsage = $state<StorageUsage | undefined>(undefined);
 
   readonly longPressMs: number;
   private readonly now: () => number;
-  private session: MicrophoneSession | undefined;
+  private mic: MicrophoneHandle | undefined;
   private modelReady: Promise<boolean> = Promise.resolve(false);
   private queue = $state<Id[]>([]);
   private draining = false;
@@ -81,7 +81,7 @@ export class App {
     this.ready = true;
     this.loadModel();
     for (const r of this.readings) {
-      if (r.completion !== 'discarded' && r.analysis !== 'done' && r.analysis !== 'failed') this.enqueue(r.id);
+      if (!isDiscarded(r) && isAnalysing(r)) this.enqueue(r.id);
     }
     void this.refreshStorageUsage();
   }
@@ -96,7 +96,7 @@ export class App {
         this.model = { state: 'ready' };
         // Readings analysed while the model was unavailable can now be transcribed.
         for (const r of this.readings) {
-          if (r.analysis === 'done' && !r.transcript && r.hasAudio && r.completion !== 'discarded') this.enqueue(r.id, 'trimmed');
+          if (r.analysis === 'done' && !r.transcript && r.hasAudio && !isDiscarded(r)) this.enqueue(r.id, { retranscribe: true });
         }
         return true;
       })
@@ -117,7 +117,8 @@ export class App {
   // ---- navigation ------------------------------------------------------
 
   go(screen: Screen) {
-    if (this.screen.name === 'start' && screen.name !== 'recording') this.closeMicrophone();
+    const leavingStart = this.screen.name === 'start' && screen.name !== 'start' && screen.name !== 'recording';
+    if (leavingStart) this.closeMicrophone();
     this.screen = screen;
   }
 
@@ -136,7 +137,7 @@ export class App {
     return this.students.filter((s) => !s.archived).sort(byName);
   }
   readingsFor(studentId: Id) {
-    return this.readings.filter((r) => r.studentId === studentId && r.completion !== 'discarded').sort((a, b) => b.recordedAt - a.recordedAt);
+    return this.readings.filter((r) => r.studentId === studentId && !isDiscarded(r)).sort((a, b) => b.recordedAt - a.recordedAt);
   }
   lastReadingFor(studentId: Id) {
     return this.readingsFor(studentId)[0];
@@ -156,16 +157,15 @@ export class App {
   // ---- roster ----------------------------------------------------------
 
   async addStudents(pasted: string) {
-    for (const name of parseRoster(pasted)) {
-      const student: Student = { id: newId(), ...name, archived: false, createdAt: this.now() };
-      await this.deps.storage.putStudent(plain(student));
-      this.students = [...this.students, student];
-    }
+    for (const name of parseRoster(pasted)) await this.createStudent(name);
   }
 
   async addStudent(line: string) {
-    if (!line.trim()) return;
-    const student: Student = { id: newId(), ...parseName(line), archived: false, createdAt: this.now() };
+    if (line.trim()) await this.createStudent(parseName(line));
+  }
+
+  private async createStudent(name: ParsedName) {
+    const student: Student = { id: newId(), ...name, archived: false, createdAt: this.now() };
     await this.deps.storage.putStudent(plain(student));
     this.students = [...this.students, student];
   }
@@ -208,7 +208,7 @@ export class App {
     await this.deps.storage.deletePassage(id);
     this.passages = this.passages.filter((p) => p.id !== id);
     for (const r of this.readings) {
-      if (r.passageId === id) await this.saveReading({ ...r, passageId: undefined, completionAssessment: undefined, transcriptBounds: undefined });
+      if (r.passageId === id) await this.saveReading(withPassage(r, undefined));
     }
   }
 
@@ -221,7 +221,7 @@ export class App {
     this.micHeardSound = false;
     this.micError = undefined;
     try {
-      this.session = await this.deps.microphone.open((level) => {
+      this.mic = await this.deps.microphone.open((level) => {
         this.micLevel = level;
         if (level >= START_LEVEL_THRESHOLD) this.micHeardSound = true;
       });
@@ -232,8 +232,8 @@ export class App {
   }
 
   closeMicrophone() {
-    this.session?.close();
-    this.session = undefined;
+    this.mic?.close();
+    this.mic = undefined;
     this.micOpen = false;
   }
 
@@ -242,10 +242,10 @@ export class App {
   }
 
   async startReading() {
-    if (this.screen.name !== 'start' || !this.session) return;
+    if (this.screen.name !== 'start' || !this.mic) return;
     const { studentId } = this.screen;
     await this.saveSettings({ ...this.settings, readingInProgress: { studentId, startedAt: this.now() } });
-    this.session.start();
+    this.mic.start();
     this.pendingStart = { studentId, passageId: this.screen.passageId };
     this.screen = { name: 'recording' };
   }
@@ -253,9 +253,9 @@ export class App {
   private pendingStart: { studentId: Id; passageId?: Id } | undefined;
 
   async finishReading() {
-    if (!this.session || !this.pendingStart) return;
+    if (!this.mic || !this.pendingStart) return;
     const { studentId, passageId } = this.pendingStart;
-    const capture = await this.session.stop();
+    const capture = await this.mic.stop();
     this.closeMicrophone();
     this.pendingStart = undefined;
     const duration = capture.samples.length / capture.sampleRate;
@@ -290,7 +290,7 @@ export class App {
   async setPassage(readingId: Id, passageId: Id | undefined) {
     const r = this.reading(readingId);
     if (!r) return;
-    await this.saveReading({ ...r, passageId, completionAssessment: undefined, transcriptBounds: undefined });
+    await this.saveReading(withPassage(r, passageId));
     await this.realign(readingId);
   }
 
@@ -325,7 +325,7 @@ export class App {
     if (!r) return;
     this.queue = this.queue.filter((id) => id !== readingId);
     await this.deps.storage.deleteAudio(readingId);
-    await this.saveReading({ ...r, completion: 'discarded', hasAudio: false, transcript: undefined });
+    await this.saveReading(tombstone(r));
     void this.refreshStorageUsage();
   }
 
@@ -349,10 +349,10 @@ export class App {
 
   // ---- analysis queue --------------------------------------------------
 
-  private enqueue(readingId: Id, restartAt?: 'trimmed') {
-    if (restartAt) {
-      const r = this.reading(readingId);
-      if (r && r.silenceBounds) this.readings = this.readings.map((x) => (x.id === readingId ? { ...x, analysis: restartAt } : x));
+  private enqueue(readingId: Id, opts: { retranscribe?: boolean } = {}) {
+    if (opts.retranscribe) {
+      // Pick the analysis up again from wherever it can: after trimming if that was done, else from the start.
+      this.readings = this.readings.map((x) => (x.id === readingId ? { ...x, analysis: x.silenceBounds ? 'trimmed' : 'queued' } : x));
     }
     if (!this.queue.includes(readingId)) this.queue = [...this.queue, readingId];
     void this.drain();
@@ -381,8 +381,10 @@ export class App {
   /** Three stages, each persisted as it completes so the review screen shows partial results. */
   private async analyse(readingId: Id) {
     let r = this.reading(readingId);
-    if (!r || r.completion === 'discarded') return;
+    if (!r || isDiscarded(r)) return;
     const samples = await this.deps.storage.getAudio(readingId);
+    r = this.reading(readingId);
+    if (!r || isDiscarded(r)) return;
     if (!samples) {
       await this.saveReading({ ...r, analysis: 'done' });
       return;
@@ -392,14 +394,17 @@ export class App {
       await this.saveReading(r);
     }
     if (r.analysis === 'trimmed') {
+      // The model may take minutes to arrive; the teacher may edit the reading meanwhile, so re-read after every await.
       const modelAvailable = await this.modelReady;
+      r = this.reading(readingId);
+      if (!r || isDiscarded(r)) return;
       if (!modelAvailable) {
         await this.saveReading({ ...r, analysis: 'done' });
         return;
       }
       const transcript = await this.deps.transcriber.transcribe(samples, r.sampleRate);
       r = this.reading(readingId);
-      if (!r || r.completion === 'discarded') return;
+      if (!r || isDiscarded(r)) return;
       r = { ...r, transcript, analysis: 'transcribed' };
       await this.saveReading(r);
     }
@@ -420,7 +425,7 @@ export class App {
     if (!r?.transcript) return;
     const passage = this.passage(r.passageId);
     if (!passage) {
-      if (r.completionAssessment || r.transcriptBounds) await this.saveReading({ ...r, completionAssessment: undefined, transcriptBounds: undefined });
+      if (r.completionAssessment || r.transcriptBounds) await this.saveReading(withPassage(r, undefined));
       return;
     }
     const completionAssessment = assessCompletion(r.transcript.words, passage.text);
@@ -453,6 +458,17 @@ export class App {
 /** Storage structured-clones what it is given, which a $state proxy cannot survive. */
 function plain<T>(value: T): T {
   return $state.snapshot(value) as T;
+}
+
+/** A reading with its passage changed forgets everything that was aligned against the old one. */
+function withPassage(reading: Reading, passageId: Id | undefined): Reading {
+  return { ...reading, passageId, completionAssessment: undefined, transcriptBounds: undefined };
+}
+
+/** What a discarded reading leaves behind: enough to keep lists and the queue consistent, nothing else. */
+function tombstone(reading: Reading): Reading {
+  const { id, studentId, recordedAt, sampleRate, sampleCount, tapBounds } = reading;
+  return { id, studentId, recordedAt, sampleRate, sampleCount, tapBounds, hasAudio: false, timing: 'tap', completion: 'discarded', analysis: 'done' };
 }
 
 function byName(a: Student, b: Student) {

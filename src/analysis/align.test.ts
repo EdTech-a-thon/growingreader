@@ -11,7 +11,7 @@ describe('assessCompletion', () => {
     expect(a).toEqual({ reachedWord: M, ofWords: M, probablyIncomplete: false });
   });
 
-  test('restarts and sounding-out do not stop the reader from reaching the end', () => {
+  test('restarts and sounding-out do not stop the student from reaching the end', () => {
     const a = assessCompletion(wordsEvenlySpaced(CAMP_RESTARTS).words, CAMP_TEXT);
     expect(a.reachedWord).toBe(M);
     expect(a.probablyIncomplete).toBe(false);
@@ -27,6 +27,12 @@ describe('assessCompletion', () => {
     const a = assessCompletion(wordsEvenlySpaced(CAMP_HALF_WRONG).words, CAMP_TEXT);
     expect(a.reachedWord).toBeGreaterThanOrEqual(M - 3);
     expect(a.probablyIncomplete).toBe(false);
+  });
+
+  test('reached word N of M counts words the way the word count does, hyphens included', () => {
+    const passage = 'The well-known cat sat down';
+    const a = assessCompletion(wordsEvenlySpaced('the well known cat').words, passage);
+    expect(a).toEqual({ reachedWord: 3, ofWords: countWords(passage), probablyIncomplete: true });
   });
 
   test('an empty transcript reaches nothing', () => {

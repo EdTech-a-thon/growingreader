@@ -63,10 +63,8 @@ export async function recordReading(h: Harness, studentName: string, opts: { sec
   h.microphone.capture = speechCapture(opts.seconds ?? 60);
   await h.user.click(screen.getByRole('button', { name: studentName }));
   if (opts.passage) {
-    await h.user.click(screen.getByRole('button', { name: /new reading with a passage/i }));
-    await h.user.click(screen.getByRole('button', { name: opts.passage }));
-  } else {
-    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
+    await h.user.click(screen.getByRole('button', { name: /choose passage/i }));
+    await h.user.click(within(screen.getByRole('group', { name: /^passage$/i })).getByRole('button', { name: opts.passage }));
   }
   await tapStart(h);
   await h.user.click(screen.getByRole('button', { name: /^done$/i }));

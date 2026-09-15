@@ -2,7 +2,7 @@
   import { useApp } from '../../app/context';
   import { displayName } from '../../domain/roster';
   import { rate, formatRate } from '../../domain/rate';
-  import { formatDate } from '../format';
+  import { formatDate, formatDateTime } from '../format';
 
   const app = useApp();
   let pasting = $state(false);
@@ -36,8 +36,9 @@
   <h1>Roster</h1>
 
   {#if app.lostReading}
+    {@const lostStudent = app.student(app.lostReading.studentId)}
     <div class="notice" role="alert">
-      A reading for <strong>{app.student(app.lostReading.studentId) ? displayName(app.student(app.lostReading.studentId)!) : 'a student'}</strong>
+      A reading for <strong>{lostStudent ? displayName(lostStudent) : 'a student'}</strong>
       started {formatDate(app.lostReading.startedAt)} was lost because the tab closed before Done was tapped. Please redo it.
       <button class="link" onclick={() => app.dismissLostReading()}>Dismiss</button>
     </div>
@@ -55,6 +56,18 @@
       <div class="progress" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(app.model.progress * 100)}>
         <div style="width:{app.model.progress * 100}%"></div>
       </div>
+    </div>
+  {/if}
+
+  {#if app.processing.length > 0}
+    <div class="card small" aria-label="Still being analysed">
+      <strong>Still being analysed</strong>
+      <ul style="margin:0.25rem 0 0; padding-left:1.25rem">
+        {#each app.processing as r (r.id)}
+          {@const s = app.student(r.studentId)}
+          <li>{s ? displayName(s) : 'Student'} · {formatDateTime(r.recordedAt)} <button class="link" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></li>
+        {/each}
+      </ul>
     </div>
   {/if}
 
@@ -90,13 +103,15 @@
   {#if app.activeStudents.length === 0}
     <p class="muted">Paste your roster to get started. Tap a student's name to hand them the device.</p>
   {:else}
-    <ul class="student-list">
+    <p class="small muted">Tap a name to start a reading. “History” opens the student's chart and past readings.</p>
+    <ul class="roster">
       {#each app.activeStudents as student (student.id)}
         <li>
-          <button aria-labelledby="student-{student.id}" aria-describedby="summary-{student.id}" onclick={() => app.go({ name: 'student', studentId: student.id })}>
+          <button class="start-reading" aria-labelledby="student-{student.id}" aria-describedby="summary-{student.id}" onclick={() => app.go({ name: 'start', studentId: student.id })}>
             <span class="name" id="student-{student.id}">{displayName(student)}</span>
             <span class="small muted" id="summary-{student.id}">{summary(student.id)}</span>
           </button>
+          <button class="history" aria-label="History for {displayName(student)}" onclick={() => app.go({ name: 'student', studentId: student.id })}>History</button>
         </li>
       {/each}
     </ul>

@@ -87,10 +87,28 @@ export interface Reading {
   analysis: AnalysisStage;
 }
 
+/** Set when a student tapped Start; cleared on Done. Survives a closed tab so the loss can be reported. */
+export interface ReadingInProgress {
+  studentId: Id;
+  startedAt: number;
+}
+
 export interface Settings {
   lastBackupAt?: number;
-  /** Set when a student tapped Start; cleared on Done. Survives a closed tab so the loss can be reported. */
-  readingInProgress?: { studentId: Id; startedAt: number };
+  readingInProgress?: ReadingInProgress;
+}
+
+export interface StorageUsage {
+  usage: number;
+  quota: number;
+}
+
+export function isDiscarded(reading: Reading): boolean {
+  return reading.completion === 'discarded';
+}
+
+export function isAnalysing(reading: Reading): boolean {
+  return reading.analysis !== 'done' && reading.analysis !== 'failed';
 }
 
 export const SAMPLE_RATE = 16000;

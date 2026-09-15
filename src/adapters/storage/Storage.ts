@@ -1,4 +1,4 @@
-import type { Id, Passage, Reading, Settings, Student } from '../../domain/types';
+import type { Id, Passage, Reading, Settings, StorageUsage, Student } from '../../domain/types';
 
 /** Everything the app persists, minus audio: the shape of a backup file. */
 export interface Snapshot {
@@ -30,9 +30,9 @@ export interface Storage {
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<void>;
 
-  /** Replace every record (not audio) with the snapshot; used by backup import. */
+  /** Replace every record with the snapshot and drop all audio (a backup carries none); used by import. */
   replaceAll(snapshot: Snapshot): Promise<void>;
 
   /** Bytes in use and available, when the platform can say. */
-  estimateUsage(): Promise<{ usage: number; quota: number } | undefined>;
+  estimateUsage(): Promise<StorageUsage | undefined>;
 }
