@@ -28,7 +28,7 @@ export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now
 }
 
 /** A capture of `seconds` of quiet-then-speech-then-quiet so silence trimming has something to find. */
-export function speechCapture(seconds: number, leadIn = 0.5, tailOut = 0.5) {
+export function speechCapture(seconds: number, leadIn = 1, tailOut = 1) {
   const n = Math.round(seconds * SAMPLE_RATE);
   const samples = new Float32Array(n);
   const start = Math.round(leadIn * SAMPLE_RATE);
@@ -62,8 +62,12 @@ export async function goTo(h: Harness, nav: 'Roster' | 'Passages' | 'Settings') 
 export async function recordReading(h: Harness, studentName: string, opts: { seconds?: number; passage?: string } = {}) {
   h.microphone.capture = speechCapture(opts.seconds ?? 60);
   await h.user.click(screen.getByRole('button', { name: studentName }));
-  await h.user.click(screen.getByRole('button', { name: /new reading/i }));
-  if (opts.passage) await h.user.click(screen.getByRole('button', { name: opts.passage }));
+  if (opts.passage) {
+    await h.user.click(screen.getByRole('button', { name: /new reading with a passage/i }));
+    await h.user.click(screen.getByRole('button', { name: opts.passage }));
+  } else {
+    await h.user.click(screen.getByRole('button', { name: /^new reading$/i }));
+  }
   await tapStart(h);
   await h.user.click(screen.getByRole('button', { name: /^done$/i }));
   await unlockDoneScreen(h);

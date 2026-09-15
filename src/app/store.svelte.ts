@@ -56,7 +56,7 @@ export class App {
   private readonly now: () => number;
   private session: MicrophoneSession | undefined;
   private modelReady: Promise<boolean> = Promise.resolve(false);
-  private queue: Id[] = [];
+  private queue = $state<Id[]>([]);
   private draining = false;
 
   constructor(private readonly deps: AppDeps) {

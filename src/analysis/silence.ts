@@ -2,7 +2,8 @@ import type { Bounds } from '../domain/types';
 
 // All of these are guesses until tuned on real classroom recordings.
 const FRAME_SECONDS = 0.02;
-const FLOOR_PERCENTILE = 0.1;
+/** Low: a 90 s reading may have only a few seconds of true quiet at each end. */
+const FLOOR_PERCENTILE = 0.02;
 const LOUD_PERCENTILE = 0.9;
 /** Fraction of the floor→loud range a frame must exceed to open speech. */
 const ONSET_FRACTION = 0.25;

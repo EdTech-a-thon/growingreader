@@ -68,7 +68,8 @@
   });
 
   async function saveErrors() {
-    const n = errorsText.trim() === '' ? undefined : Math.max(0, Math.floor(Number(errorsText)));
+    const raw = String(errorsText ?? '').trim();
+    const n = raw === '' ? undefined : Math.max(0, Math.floor(Number(raw)));
     await app.setErrors(readingId, Number.isNaN(n) ? undefined : n);
   }
 
