@@ -94,6 +94,10 @@ export class App {
       })
       .then(() => {
         this.model = { state: 'ready' };
+        // Readings analysed while the model was unavailable can now be transcribed.
+        for (const r of this.readings) {
+          if (r.analysis === 'done' && !r.transcript && r.hasAudio && r.completion !== 'discarded') this.enqueue(r.id, 'trimmed');
+        }
         return true;
       })
       .catch((e: unknown) => {
@@ -345,7 +349,11 @@ export class App {
 
   // ---- analysis queue --------------------------------------------------
 
-  private enqueue(readingId: Id) {
+  private enqueue(readingId: Id, restartAt?: 'trimmed') {
+    if (restartAt) {
+      const r = this.reading(readingId);
+      if (r && r.silenceBounds) this.readings = this.readings.map((x) => (x.id === readingId ? { ...x, analysis: restartAt } : x));
+    }
     if (!this.queue.includes(readingId)) this.queue = [...this.queue, readingId];
     void this.drain();
   }

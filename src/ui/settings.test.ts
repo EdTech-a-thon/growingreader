@@ -108,3 +108,41 @@ describe('Data ownership', () => {
     expect(screen.queryByText(/been a while since your last backup/i)).not.toBeInTheDocument();
   });
 });
+
+describe('Speech model', () => {
+  test('the first launch shows a download progress bar until the model is ready', async () => {
+    const { FakeTranscriber } = await import('../adapters/transcriber/FakeTranscriber');
+    const transcriber = new FakeTranscriber();
+    let release!: () => void;
+    transcriber.loadDelay = new Promise<void>((r) => (release = r));
+    const h = await renderApp({ transcriber });
+    expect(screen.getByRole('progressbar', { name: /speech model download/i })).toBeInTheDocument();
+    release();
+    await screen.findByText(/paste your roster/i);
+    await vi.waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument());
+    void h;
+  });
+
+  test('a failed download is explained and can be retried from Settings, after which waiting readings are transcribed', async () => {
+    const { FakeTranscriber } = await import('../adapters/transcriber/FakeTranscriber');
+    const { CAMP_CLEAN } = await import('../test/fixtures/passages');
+    const transcriber = new FakeTranscriber();
+    transcriber.loadError = new Error('offline');
+    transcriber.hears(CAMP_CLEAN);
+    const h = await renderApp({ transcriber });
+    expect(screen.getByText(/speech model isn't available on this device \(offline\)/i)).toBeInTheDocument();
+    await goTo(h, 'Passages');
+    await pastePassage(h, 'Camp', CAMP_TEXT);
+    await goTo(h, 'Roster');
+    await pasteRoster(h, 'Ada Lovelace');
+    await recordReading(h, 'Ada Lovelace');
+    await vi.waitFor(async () => expect((await h.storage.listReadings())[0].analysis).toBe('done'));
+    expect(screen.queryByText('Camp', { selector: 'strong' })).not.toBeInTheDocument();
+
+    transcriber.loadError = undefined;
+    await goTo(h, 'Settings');
+    await h.user.click(screen.getByRole('button', { name: /try downloading again/i }));
+    await screen.findByText(/^Ready\./);
+    await vi.waitFor(async () => expect((await h.storage.listReadings())[0].passageId).toBeDefined());
+  });
+});

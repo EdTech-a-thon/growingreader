@@ -49,6 +49,15 @@
     </div>
   {/if}
 
+  {#if app.model.state === 'loading'}
+    <div class="card" aria-live="polite">
+      <p class="small" style="margin:0 0 0.5rem">Getting the speech model ready ({Math.round(app.model.progress * 100)}%). This only happens once. You can record in the meantime.</p>
+      <div class="progress" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(app.model.progress * 100)}>
+        <div style="width:{app.model.progress * 100}%"></div>
+      </div>
+    </div>
+  {/if}
+
   {#if app.model.state === 'failed'}
     <p class="small muted">The speech model isn't available on this device ({app.model.message}). Everything still works: you choose the passage yourself on review.</p>
   {/if}
