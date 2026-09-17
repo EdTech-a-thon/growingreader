@@ -30,5 +30,7 @@
   onpointercancel={up}
   oncontextmenu={(e) => e.preventDefault()}
 >
-  {@render children()}
+  <!-- The fill sweeps across over exactly the hold duration, so the teacher sees how long is left. -->
+  <span class="unlock-fill" aria-hidden="true" style:transition-duration="{ms}ms"></span>
+  <span>{@render children()}</span>
 </button>

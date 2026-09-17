@@ -1,10 +1,10 @@
 {
-  "name": "Reading Fluency",
-  "short_name": "Fluency",
+  "name": "Growing Reader",
+  "short_name": "Growing Reader",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#1f5f8b",
+  "background_color": "#f7faf5",
+  "theme_color": "#437b50",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

@@ -1,4 +1,4 @@
-import { activeBounds, rate, wordsCorrectPerMinute } from './rate';
+import { activeBounds, clampBounds, rate, wordsCorrectPerMinute } from './rate';
 import type { Passage, Reading } from './types';
 
 const passage: Passage = { id: 'p1', title: 'T', text: '', wordCount: 120, createdAt: 0 };
@@ -30,12 +30,19 @@ describe('rate', () => {
     expect(rate({ ...base, completion: 'incomplete' }, passage)).toBeUndefined();
   });
 
-  test('uses the most refined bounds by default and the chosen bounds when the teacher picks', () => {
+  test('uses the most refined automatic bounds by default and the teacher’s handles once dragged', () => {
     const refined: Reading = { ...base, silenceBounds: { start: 5, end: 85 }, transcriptBounds: { start: 10, end: 70 } };
     expect(activeBounds(refined)).toEqual({ start: 10, end: 70 });
     expect(rate(refined, passage)).toBe(120);
-    expect(rate({ ...refined, timing: 'silence' }, passage)).toBe(90);
-    expect(rate({ ...refined, timing: 'tap' }, passage)).toBe(80);
+    expect(rate({ ...refined, timing: 'manual', manualBounds: { start: 10, end: 90 } }, passage)).toBe(90);
+    // 'manual' without handles (a backup from before they existed) falls back to auto.
+    expect(rate({ ...refined, timing: 'manual' }, passage)).toBe(120);
+  });
+
+  test('handles stay inside the recording and never cross', () => {
+    expect(clampBounds({ start: -1, end: 95 }, 90)).toEqual({ start: 0, end: 90 });
+    expect(clampBounds({ start: 50, end: 40 }, 90)).toEqual({ start: 50, end: 50.2 });
+    expect(clampBounds({ start: 90, end: 90 }, 90)).toEqual({ start: 89.8, end: 90 });
   });
 });
 

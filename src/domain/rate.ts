@@ -1,4 +1,5 @@
 import type { Bounds, Passage, Reading, TimingSource } from './types';
+import { countWords } from '../analysis/words';
 
 export function durationOf(bounds: Bounds): number {
   return Math.max(0, bounds.end - bounds.start);
@@ -15,21 +16,30 @@ export function boundsFor(reading: Reading, source: TimingSource): Bounds | unde
   }
 }
 
-/** The most refined bounds available: transcript > silence-trim > tap-to-tap. */
-export function mostRefinedSource(reading: Reading): TimingSource {
+/** The most refined automatic bounds available: transcript > silence-trim > tap-to-tap. */
+export function autoSource(reading: Reading): TimingSource {
   if (reading.transcriptBounds) return 'transcript';
   if (reading.silenceBounds) return 'silence';
   return 'tap';
 }
 
-/** The source in force: the teacher's choice if she made one, otherwise the most refined available. */
-export function activeSource(reading: Reading): TimingSource {
-  if (reading.timing === 'auto') return mostRefinedSource(reading);
-  return boundsFor(reading, reading.timing) ? reading.timing : 'tap';
+export function autoBounds(reading: Reading): Bounds {
+  return boundsFor(reading, autoSource(reading)) ?? reading.tapBounds;
 }
 
+/** The bounds in force: the teacher's handles if she dragged them, otherwise the most refined automatic ones. */
 export function activeBounds(reading: Reading): Bounds {
-  return boundsFor(reading, activeSource(reading)) ?? reading.tapBounds;
+  if (reading.timing === 'manual' && reading.manualBounds) return reading.manualBounds;
+  return autoBounds(reading);
+}
+
+/** Handles cannot cross, leave the recording, or pinch closer than this. */
+export const MIN_BOUNDS_GAP = 0.2;
+
+export function clampBounds(bounds: Bounds, duration: number): Bounds {
+  const start = Math.max(0, Math.min(bounds.start, duration - MIN_BOUNDS_GAP));
+  const end = Math.min(duration, Math.max(bounds.end, start + MIN_BOUNDS_GAP));
+  return { start, end };
 }
 
 export function activeDuration(reading: Reading): number {
@@ -62,4 +72,16 @@ export function formatSeconds(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds - m * 60;
   return m > 0 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${s.toFixed(1)} s`;
+}
+
+/**
+ * Words per minute from what the app heard: transcript word count over the active duration.
+ * An estimate with an unknown error bound (see ADR-0003); shown only while no exact rate exists.
+ */
+export function estimatedRate(reading: Reading): number | undefined {
+  if (!reading.transcript) return undefined;
+  const words = countWords(reading.transcript.text);
+  const seconds = activeDuration(reading);
+  if (words === 0 || seconds <= 0) return undefined;
+  return (words / seconds) * 60;
 }

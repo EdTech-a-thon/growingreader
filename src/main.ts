@@ -4,6 +4,9 @@ import App from './App.svelte';
 import { IndexedDbStorage } from './adapters/storage/IndexedDbStorage';
 import { WebAudioMicrophone } from './adapters/microphone/WebAudioMicrophone';
 import { WorkerTranscriber } from './adapters/transcriber/WorkerTranscriber';
+import { authBroker } from './adapters/sheets/broker';
+import { clearAuthorization, createGoogleSheetTransport } from './adapters/sheets/google';
+import { createSheetsClient } from './adapters/sheets/sheets-client';
 
 mount(App, {
   target: document.getElementById('app')!,
@@ -12,6 +15,9 @@ mount(App, {
       storage: new IndexedDbStorage(),
       microphone: new WebAudioMicrophone(),
       transcriber: new WorkerTranscriber(),
+      broker: authBroker,
+      sheets: createSheetsClient(createGoogleSheetTransport()),
+      clearSheetAuthorization: clearAuthorization,
     },
   },
 });

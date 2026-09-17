@@ -1,4 +1,4 @@
-# Reading Fluency
+# Growing Reader
 
 A local-first web app a reading interventionist hands to a student on a Chromebook. The student reads a printed passage aloud; the app records, works out the reading rate, and tracks each student's rate over time.
 
@@ -25,19 +25,23 @@ The teacher's list of students, pasted in one name per line.
 _Avoid_: Class, group, student list
 
 **Transcript**:
-The app's rough text of what it heard during a reading. Used to identify the passage, confirm completion, and tighten start/stop; never a score.
+The app's rough text of what it heard during a reading. Used to identify the passage, confirm completion, tighten start/stop, and give an estimated rate on review; never a score.
 _Avoid_: Estimate, recognition result, ASR output
 
 **Rate**:
 Words per minute for a complete reading: the passage's word count over the time spent reading. Only exists once the passage is known and the reading is complete.
 _Avoid_: WPM (in prose), speed, fluency score
 
+**Estimated rate**:
+A rough words-per-minute from the transcript's word count over the time spent reading. Shown only on the review screen, marked as an estimate, while no rate exists; never stored or charted.
+_Avoid_: Rate (unqualified), approximate WPM, transcript rate
+
 **Complete**:
-A reading in which the student read the whole passage. Incomplete readings are kept for playback but have no rate and stay off the chart until the teacher marks them complete or discards them.
+A reading in which the student read the whole passage. Every reading is complete by default; one the app heard stop early waits for the teacher to decide. Incomplete readings are kept for playback but have no rate and stay off the chart until the teacher marks them complete or discards them.
 _Avoid_: Finished, valid, scored
 
 **Errors**:
-The number of misread words the teacher counted while listening to a reading. Optional; entered by hand.
+The number of misread words the teacher counted while listening to a reading. Kept on older readings and backups; no longer entered on review.
 _Avoid_: Miscues, mistakes, accuracy (as a count)
 
 **Words correct per minute**:

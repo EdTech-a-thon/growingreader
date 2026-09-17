@@ -22,3 +22,8 @@ export function parseName(line: string): ParsedName {
 export function displayName(name: ParsedName): string {
   return name.lastName ? `${name.firstName} ${name.lastName}` : name.firstName;
 }
+
+/** Up to two letters for the roster avatar: "AL" for Ada Lovelace, "C" for Cher. */
+export function initials(name: ParsedName): string {
+  return ((name.firstName[0] ?? '') + (name.lastName[0] ?? '')).toUpperCase();
+}

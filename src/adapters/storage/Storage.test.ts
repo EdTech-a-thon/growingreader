@@ -13,7 +13,7 @@ const reading: Reading = {
   sampleRate: 16000,
   sampleCount: 32000,
   tapBounds: { start: 0, end: 2 },
-  timing: 'tap',
+  timing: 'auto',
   completion: 'pending',
   analysis: 'queued',
 };

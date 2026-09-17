@@ -35,40 +35,30 @@ async function seeded() {
   await storage.putReading(reading('r5', day(21), 50, { completion: 'incomplete' }));
   await storage.putReading(reading('r6', day(22), 50, { completion: 'pending' }));
   const h = await renderApp({ storage });
-  await h.user.click(screen.getByRole('button', { name: /history for Ada Lovelace/i }));
+  await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
   return h;
 }
 
 describe('Progress over time', () => {
+  // The chart is a canvas; the list beside it carries every point for screen readers, keyboards and this suite.
+  const chartPoints = () => within(screen.getByRole('list', { name: /readings on the chart/i })).getAllByRole('button');
+
   test('one point per complete reading, same-day readings kept separate; incomplete and unreviewed readings stay off', async () => {
     await seeded();
-    const chart = screen.getByRole('img', { name: /rate over time/i });
-    const points = within(chart).getAllByRole('button');
-    expect(points.map((p) => p.getAttribute('aria-label'))).toEqual([
+    expect(screen.getByRole('img', { name: /rate over time: 4 readings/i })).toBeInTheDocument();
+    expect(chartPoints().map((p) => p.textContent)).toEqual([
       'Sep 1, 2026: 60 words per minute',
       'Sep 8, 2026: 75 words per minute',
-      'Sep 8, 2026: 80 words per minute',
-      'Sep 15, 2026: 60 words per minute',
+      'Sep 8, 2026: 80 words per minute, 76 words correct per minute',
+      'Sep 15, 2026: 60 words per minute, new passage: Ship',
     ]);
-  });
-
-  test('a passage change is marked on the chart', async () => {
-    await seeded();
-    const chart = screen.getByRole('img', { name: /rate over time/i });
-    expect(within(chart).getByText(/new passage: Ship/i)).toBeInTheDocument();
-  });
-
-  test('words correct per minute is a second series once errors are entered', async () => {
-    await seeded();
-    expect(screen.getByText(/dashed: words correct per minute/i)).toBeInTheDocument();
   });
 
   test('tapping a chart point opens that reading', async () => {
     const h = await seeded();
-    const chart = screen.getByRole('img', { name: /rate over time/i });
-    await h.user.click(within(chart).getByRole('button', { name: 'Sep 15, 2026: 60 words per minute' }));
+    await h.user.click(screen.getByRole('button', { name: /Sep 15, 2026: 60 words per minute/ }));
     expect(screen.getByRole('heading', { name: /review/i })).toBeInTheDocument();
-    expect(screen.getByText('Ship', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Ship ·/ })).toBeInTheDocument();
   });
 
   test('the readings table lists date, passage, time, rate and completion state', async () => {
@@ -82,18 +72,18 @@ describe('Progress over time', () => {
     expect(rows[2]).toHaveTextContent(/Ship.*2:00\.0.*60.*Complete/);
   });
 
-  test('Show progress opens a full-screen chart with nothing else on it', async () => {
+  test('the student page is a teacher view: back to the roster top-left, New reading, no navigation lost', async () => {
     const h = await seeded();
-    await h.user.click(screen.getByRole('button', { name: /show progress/i }));
-    expect(screen.getByRole('heading', { name: /Ada Lovelace's progress/i })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /rate over time/i })).toBeInTheDocument();
-    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new reading/i })).toBeInTheDocument();
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    await h.user.click(screen.getByRole('button', { name: /back to roster/i }));
+    expect(screen.getByRole('heading', { name: /roster/i })).toBeInTheDocument();
   });
 
   test('the roster shows each student’s latest reading', async () => {
     const h = await seeded();
-    await h.user.click(within(screen.getByRole('navigation')).getByRole('link', { name: 'Roster' }));
+    await h.user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Roster' }));
     expect(screen.getByRole('button', { name: 'Ada Lovelace' })).toHaveAccessibleDescription(/awaiting review/i);
   });
 });

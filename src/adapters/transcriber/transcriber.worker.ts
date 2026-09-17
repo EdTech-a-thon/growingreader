@@ -23,6 +23,11 @@ function load(): Promise<AutomaticSpeechRecognitionPipeline> {
     loading = pipeline('automatic-speech-recognition', MODEL, {
       dtype: 'q8',
       device: 'wasm',
+      // The bundled onnxruntime-web (1.26 dev) fails to build the decoder session: its
+      // DequantizeLinear->MatMulNBits fusion trips over the tied embed_tokens/proj_out weight
+      // ("Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale"). The export
+      // is dynamically quantized (MatMulInteger), so that fusion buys nothing here; turn it off.
+      session_options: { extra: { session: { disable_quant_qdq: '1' } } },
       progress_callback: (info: { status: string; progress?: number }) => {
         if (info.status === 'progress_total' && typeof info.progress === 'number') post({ type: 'progress', fraction: info.progress / 100 });
       },

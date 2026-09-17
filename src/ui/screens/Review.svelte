@@ -2,12 +2,25 @@
   import { untrack } from 'svelte';
   import { useApp } from '../../app/context';
   import { displayName } from '../../domain/roster';
-  import { activeDuration, activeSource, boundsFor, durationOf, formatRate, formatSeconds, rate, wordsCorrectPerMinute } from '../../domain/rate';
+  import { activeBounds, activeDuration, autoBounds, autoSource, estimatedRate, formatRate, formatSeconds, rate, wordsCorrectPerMinute } from '../../domain/rate';
   import type { TimingSource } from '../../domain/types';
   import { formatDateTime } from '../format';
   import { encodeWav } from '../wav';
   import { downloadBlob } from '../download';
   import PassageForm from '../PassageForm.svelte';
+  import PassagePicker from '../PassagePicker.svelte';
+  import Modal from '../Modal.svelte';
+  import Waveform from '../Waveform.svelte';
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import Play from '@lucide/svelte/icons/play';
+  import Pause from '@lucide/svelte/icons/pause';
+  import Download from '@lucide/svelte/icons/download';
+  import Trash2 from '@lucide/svelte/icons/trash-2';
+  import Mic from '@lucide/svelte/icons/mic';
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import BookOpen from '@lucide/svelte/icons/book-open';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 
   let { readingId }: { readingId: string } = $props();
   const app = useApp();
@@ -16,20 +29,24 @@
   const passage = $derived(app.passage(reading?.passageId));
   const currentRate = $derived(reading ? rate(reading, passage) : undefined);
   const wcpm = $derived(reading ? wordsCorrectPerMinute(reading, passage) : undefined);
+  // An estimate stands in only while the exact rate is out of reach; an incomplete reading gets no number at all (ADR-0001).
+  const estimate = $derived(reading && currentRate === undefined && (reading.completion === 'pending' || reading.completion === 'complete') ? estimatedRate(reading) : undefined);
+  const totalSeconds = $derived(reading ? reading.sampleCount / reading.sampleRate : 0);
 
   let audioUrl = $state<string | undefined>(undefined);
-  let audioSamples: Float32Array | undefined;
+  let audioSamples = $state<Float32Array | undefined>(undefined);
+  let audioEl = $state<HTMLAudioElement | undefined>(undefined);
+  let playing = $state(false);
+  let playhead = $state(0);
   let changingPassage = $state(false);
   let pastingPassage = $state(false);
   let confirmingDiscard = $state(false);
-  let errorsText = $state('');
   let noteText = $state('');
 
-  // Seed the text fields once per reading; later background saves must not clobber what the teacher is typing.
+  // Seed the note once per reading; later background saves must not clobber what the teacher is typing.
   $effect(() => {
     void readingId;
     untrack(() => {
-      errorsText = reading?.errors === undefined ? '' : String(reading.errors);
       noteText = reading?.note ?? '';
     });
   });
@@ -39,6 +56,7 @@
   $effect(() => {
     if (!hasAudio) {
       audioUrl = undefined;
+      audioSamples = undefined;
       return;
     }
     let cancelled = false;
@@ -55,11 +73,13 @@
     };
   });
 
-  const timingOptions: Array<{ source: TimingSource; label: string }> = [
-    { source: 'tap', label: 'Tap to tap' },
-    { source: 'silence', label: 'Trimmed silence' },
-    { source: 'transcript', label: 'First to last word' },
-  ];
+  const bounds = $derived(reading ? activeBounds(reading) : { start: 0, end: 0 });
+  const autoLabel: Record<TimingSource, string> = {
+    tap: 'Whole recording, tap to tap',
+    silence: 'Auto-trimmed: silence cut from both ends',
+    transcript: 'Auto-trimmed: first word to last word',
+  };
+  const timingLabel = $derived(reading ? (reading.timing === 'manual' && reading.manualBounds ? 'Adjusted by hand' : autoLabel[autoSource(reading)]) : '');
 
   const analysisLabel = $derived.by(() => {
     if (!reading) return '';
@@ -77,10 +97,18 @@
     }
   });
 
-  async function saveErrors() {
-    const raw = String(errorsText ?? '').trim();
-    const n = raw === '' ? undefined : Math.max(0, Math.floor(Number(raw)));
-    await app.setErrors(readingId, Number.isNaN(n) ? undefined : n);
+  function togglePlay() {
+    if (!audioEl) return;
+    if (audioEl.paused) {
+      // From rest, play from where the reading starts rather than the lead-in silence.
+      if (audioEl.currentTime === 0 || audioEl.ended) audioEl.currentTime = bounds.start;
+      void audioEl.play();
+    } else audioEl.pause();
+  }
+
+  function seek(seconds: number) {
+    playhead = seconds;
+    if (audioEl) audioEl.currentTime = seconds;
   }
 
   function exportAudio() {
@@ -95,170 +123,203 @@
   }
 </script>
 
-<main class="page">
+<main class="view">
   {#if !reading || !student}
     <p>Reading not found.</p>
   {:else}
-    <div class="row spread">
-      <div>
-        <h1>Review</h1>
-        <p class="muted">{displayName(student)} · {formatDateTime(reading.recordedAt)}</p>
+    <div class="back-row">
+      <button class="button secondary" onclick={() => app.go({ name: 'student', studentId: reading.studentId })}><ArrowLeft size={18} aria-hidden="true" />Back to {student.firstName}</button>
+    </div>
+    <div class="page-heading">
+      <div class="heading-text">
+        <p class="eyebrow">{formatDateTime(reading.recordedAt)}</p>
+        <h1>Review · {displayName(student)}</h1>
+        {#if analysisLabel}
+          <p class="subtext" role="status"><LoaderCircle size={14} class="spin" aria-hidden="true" style="vertical-align:-2px;margin-right:4px" />{analysisLabel}</p>
+        {/if}
       </div>
-      <button onclick={() => app.go({ name: 'student', studentId: reading.studentId })}>Back to {student.firstName}</button>
+      <div class="heading-actions">
+        <button class="button primary" onclick={() => app.go({ name: 'start', studentId: reading.studentId, passageId: reading.passageId })}><Mic size={18} aria-hidden="true" />Record again</button>
+      </div>
     </div>
 
     {#if reading.completion === 'discarded'}
-      <div class="notice">This reading was discarded.</div>
+      <div class="banner warn-banner"><span class="banner-mark">!</span>This reading was discarded.</div>
     {/if}
 
-    {#if analysisLabel}
-      <p class="small muted" role="status">{analysisLabel}</p>
-    {/if}
-
-    <section class="card">
-      <h2>Rate</h2>
-      {#if currentRate !== undefined}
-        <p class="rate">{formatRate(currentRate)} <small>words per minute</small></p>
-        {#if wcpm !== undefined}
-          <p class="rate" style="font-size:2rem">{formatRate(wcpm)} <small>words correct per minute</small></p>
-        {/if}
-      {:else if !passage}
-        <p class="muted">Choose a passage to get a rate.</p>
-      {:else if reading.completion !== 'complete'}
-        <p class="muted">Mark the reading complete to get a rate.</p>
-      {/if}
-    </section>
-
-    <section class="card">
-      <h2>Recording</h2>
-      {#if reading.hasAudio}
-        {#if audioUrl}
-          <audio controls src={audioUrl} style="width:100%"></audio>
-        {:else}
-          <p class="muted small">Loading audio…</p>
-        {/if}
-        <div class="row" style="margin-top:0.5rem">
-          <button onclick={exportAudio}>Export audio</button>
-          <button class="danger" onclick={() => app.deleteAudio(readingId)}>Delete audio</button>
-        </div>
-      {:else}
-        <p class="muted">Audio deleted; the timing and rate are kept.</p>
-      {/if}
-    </section>
-
-    <section class="card">
-      <h2>Timing</h2>
-      <p>Time spent reading: <strong>{formatSeconds(activeDuration(reading))}</strong></p>
-      <div class="choices" role="group" aria-label="Timing">
-        {#each timingOptions as option (option.source)}
-          {@const bounds = boundsFor(reading, option.source)}
-          <button aria-pressed={activeSource(reading) === option.source} disabled={!bounds} onclick={() => app.setTiming(readingId, option.source)}>
-            {option.label}{bounds ? `: ${formatSeconds(durationOf(bounds))}` : ''}
-            <span class="small muted" style="display:block">{bounds ? `${bounds.start.toFixed(1)} s → ${bounds.end.toFixed(1)} s` : 'not available yet'}</span>
-          </button>
-        {/each}
-      </div>
-      {#if activeSource(reading) !== 'tap'}
-        <button class="link" onclick={() => app.setTiming(readingId, 'tap')}>Reset to tap-to-tap</button>
-      {/if}
-    </section>
-
-    <section class="card">
-      <h2>Passage</h2>
-      {#if passage}
-        <p><strong>{passage.title}</strong> <span class="muted">· {passage.wordCount} words</span>{#if reading.identification?.autoAssigned && !changingPassage}<span class="small muted"> · identified from the recording</span>{/if}</p>
-      {:else if reading.identification && !reading.identification.autoAssigned && reading.identification.candidates.length > 0}
-        <p>Not sure which passage this was. Was it one of these?</p>
-        <div class="choices">
-          {#each reading.identification.candidates as c (c.passageId)}
-            {@const candidate = app.passage(c.passageId)}
-            {#if candidate}
-              <button onclick={() => app.setPassage(readingId, candidate.id)}>{candidate.title}</button>
-            {/if}
-          {/each}
-        </div>
-      {:else if app.passages.length === 0}
-        <p class="muted">No passages stored yet.</p>
-      {:else}
-        <p class="muted">No passage chosen.</p>
-      {/if}
-
-      <div class="row" style="margin-top:0.5rem">
-        {#if app.passages.length > 0}
-          <button onclick={() => ((changingPassage = !changingPassage), (pastingPassage = false))}>{passage ? 'Change passage' : 'Choose passage'}</button>
-        {/if}
-        <button onclick={() => ((pastingPassage = !pastingPassage), (changingPassage = false))}>Paste new passage</button>
-      </div>
-
-      {#if changingPassage}
-        <div class="choices" style="margin-top:0.75rem" role="group" aria-label="Choose passage">
-          {#each app.passages as p (p.id)}
-            <button aria-pressed={p.id === reading.passageId} onclick={() => (app.setPassage(readingId, p.id), (changingPassage = false))}>{p.title}</button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if pastingPassage}
-        <PassageForm
-          submitLabel="Save and use for this reading"
-          onsubmit={async (title, text) => {
-            await app.pasteNewPassageFor(readingId, title, text);
-            pastingPassage = false;
-          }}
-          oncancel={() => (pastingPassage = false)}
-        />
-      {/if}
-    </section>
-
-    <section class="card">
-      <h2>Completion</h2>
-      {#if reading.completionAssessment}
-        {#if reading.completionAssessment.probablyIncomplete}
-          <div class="notice">The student may not have reached the end of the passage. Listen and decide.</div>
-        {:else}
-          <p class="small muted">The app heard the student reach the end of the passage.</p>
-        {/if}
-      {:else if reading.completion === 'pending'}
-        <p class="small muted">Did they read the whole passage?</p>
-      {/if}
-      <div class="choices" role="group" aria-label="Completion">
-        <button aria-pressed={reading.completion === 'complete'} onclick={() => app.setCompletion(readingId, 'complete')}>Complete</button>
-        <button aria-pressed={reading.completion === 'incomplete'} onclick={() => app.setCompletion(readingId, 'incomplete')}>Incomplete</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Errors</h2>
-      <div class="field">
-        <label for="errors">Misread words you heard (optional)</label>
-        <input id="errors" type="number" min="0" step="1" inputmode="numeric" bind:value={errorsText} onblur={saveErrors} onchange={saveErrors} style="max-width:10rem" />
-      </div>
-      <div class="field">
-        <label for="note">Note</label>
-        <textarea id="note" bind:value={noteText} onblur={() => app.setNote(readingId, noteText)} style="min-height:4rem" placeholder="e.g. new glasses today"></textarea>
-      </div>
-    </section>
-
-    {#if reading.transcript}
-      <details class="card">
-        <summary class="muted">What the app heard (rough; used only to match the passage)</summary>
-        <pre class="transcript">{reading.transcript.text}</pre>
-      </details>
-    {/if}
-
-    <section class="card">
-      <div class="row">
-        <button class="primary" onclick={() => app.go({ name: 'start', studentId: reading.studentId, passageId: reading.passageId })}>Record again</button>
-        {#if reading.completion !== 'discarded'}
-          {#if confirmingDiscard}
-            <span>Discard this reading? The audio is deleted and it leaves the record.</span>
-            <button class="danger" onclick={discard}>Yes, discard</button>
-            <button onclick={() => (confirmingDiscard = false)}>Keep</button>
+    <section class="review-hero">
+      <div class="passage-row">
+        <button class="passage-select" aria-haspopup="dialog" onclick={() => (changingPassage = true)}>
+          <BookOpen size={18} aria-hidden="true" />
+          {#if passage}
+            <span class="passage-select-title">{passage.title}</span>
+            <span class="muted">· {passage.wordCount} words</span>
           {:else}
-            <button class="danger" onclick={() => (confirmingDiscard = true)}>Discard reading</button>
+            <span class="passage-select-title">Choose passage</span>
           {/if}
+          <ChevronDown size={18} aria-hidden="true" />
+        </button>
+        {#if passage && reading.identification?.autoAssigned}
+          <span class="small muted">identified from the recording</span>
+        {:else if !passage && reading.identification && reading.identification.candidates.length > 0}
+          <span class="candidates" role="group" aria-label="Passage candidates">
+            <span class="small muted">Not sure which passage. Was it</span>
+            {#each reading.identification.candidates as c, i (c.passageId)}
+              {@const candidate = app.passage(c.passageId)}
+              {#if candidate}
+                <button class="link-button" onclick={() => app.setPassage(readingId, candidate.id)}>{candidate.title}</button>{i < reading.identification.candidates.length - 1 ? ' or' : '?'}
+              {/if}
+            {/each}
+          </span>
+        {/if}
+      </div>
+
+      <div class="rate-row">
+        <div>
+          <h2 class="card-title">Rate</h2>
+          {#if currentRate !== undefined}
+            <div class="rate-block">
+              <p class="rate">{formatRate(currentRate)} <small>words per minute</small></p>
+              {#if wcpm !== undefined}
+                <p class="rate secondary">{formatRate(wcpm)} <small>words correct per minute</small></p>
+              {/if}
+            </div>
+          {:else}
+            {#if estimate !== undefined}
+              <p class="rate estimate">≈{formatRate(estimate)} <small>words per minute, estimated</small></p>
+            {/if}
+            {#if !passage}
+              <p class={estimate === undefined ? 'rate-prompt' : 'rate-caption'}>Choose a passage to get a rate{estimate !== undefined ? ' from its word count instead of the rough transcript.' : '.'}</p>
+            {:else if reading.completion !== 'complete'}
+              <p class={estimate === undefined ? 'rate-prompt' : 'rate-caption'}>{reading.completion === 'pending' ? 'The student may have stopped early; mark the reading complete below to get a rate' : 'Mark the reading complete to get a rate'}{estimate !== undefined ? ' from the passage word count.' : '.'}</p>
+            {/if}
+          {/if}
+        </div>
+        <div class="time-block">
+          <strong>{formatSeconds(activeDuration(reading))}</strong>
+          <span>Time spent reading</span>
+        </div>
+      </div>
+
+      <h2 class="card-title">Recording</h2>
+      {#if reading.hasAudio}
+        <div class="player">
+          <button class="play-button" onclick={togglePlay} disabled={!audioUrl} aria-label={playing ? 'Pause' : 'Play'}>
+            {#if playing}<Pause size={22} fill="currentColor" />{:else}<Play size={22} fill="currentColor" style="margin-left:3px" />{/if}
+          </button>
+          <span class="player-time">{formatSeconds(playhead)} / {formatSeconds(totalSeconds)}</span>
+          <span class="grow"></span>
+          <button class="button secondary small" onclick={exportAudio} disabled={!audioSamples}><Download size={16} aria-hidden="true" />Export audio</button>
+          <button class="button danger small" onclick={() => app.deleteAudio(readingId)}><Trash2 size={16} aria-hidden="true" />Delete audio</button>
+        </div>
+        {#if audioUrl}
+          <audio
+            bind:this={audioEl}
+            src={audioUrl}
+            preload="auto"
+            onplay={() => (playing = true)}
+            onpause={() => (playing = false)}
+            onended={() => ((playing = false), (playhead = 0))}
+            ontimeupdate={() => (playhead = audioEl?.currentTime ?? 0)}
+          ></audio>
+        {/if}
+        <Waveform samples={audioSamples} duration={totalSeconds} {bounds} auto={autoBounds(reading)} {playhead} onseek={seek} onchange={(b) => app.setBounds(readingId, b)} />
+      {:else}
+        <p class="subtext" style="margin-bottom:10px">Audio deleted; the timing and rate are kept.</p>
+        <Waveform samples={undefined} duration={totalSeconds} {bounds} auto={autoBounds(reading)} onchange={(b) => app.setBounds(readingId, b)} />
+      {/if}
+
+      <div class="timing-line" role="group" aria-label="Timing">
+        <span class="timing-text"><strong>{timingLabel}</strong> · {bounds.start.toFixed(1)} s → {bounds.end.toFixed(1)} s · drag the handles to adjust</span>
+        {#if reading.timing === 'manual'}
+          <button class="text-button" onclick={() => app.resetTiming(readingId)}><RotateCcw size={16} aria-hidden="true" />Reset to auto</button>
         {/if}
       </div>
     </section>
+
+    <div class="review-grid">
+      <section class="card">
+        <h2>Completion</h2>
+        {#if reading.completionAssessment}
+          {#if reading.completionAssessment.probablyIncomplete}
+            <div class="banner warn-banner"><span class="banner-mark">?</span>The student may not have reached the end of the passage. Listen and decide.</div>
+          {:else}
+            <p class="subtext" style="margin-bottom:12px">The app heard the student reach the end of the passage.</p>
+          {/if}
+        {:else}
+          <p class="subtext" style="margin-bottom:12px">Counted as complete unless you say otherwise.</p>
+        {/if}
+        <div class="chips" role="group" aria-label="Completion">
+          <button class="chip go" aria-pressed={reading.completion === 'complete'} onclick={() => app.setCompletion(readingId, 'complete')}>Complete</button>
+          <button class="chip stop" aria-pressed={reading.completion === 'incomplete'} onclick={() => app.setCompletion(readingId, 'incomplete')}>Incomplete</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Note</h2>
+        <div class="field" style="margin-bottom:0">
+          <label for="note" class="sr-only">Note</label>
+          <textarea id="note" bind:value={noteText} onblur={() => app.setNote(readingId, noteText)} style="min-height:5rem" placeholder="Anything worth remembering, e.g. new glasses today"></textarea>
+        </div>
+      </section>
+
+      <section class="card span-2">
+        <h2>What the app heard</h2>
+        {#if reading.transcript}
+          <p class="transcript">{reading.transcript.text}</p>
+          <p class="field-help" style="margin-top:10px">A rough transcript, used to match the passage and to estimate a rate when no passage is set.</p>
+        {:else}
+          <p class="subtext">{analysisLabel || 'No transcript for this reading.'}</p>
+        {/if}
+      </section>
+
+      {#if reading.completion !== 'discarded'}
+        <section class="card span-2">
+          <div class="inline-actions">
+            {#if confirmingDiscard}
+              <span class="confirm-line">Discard this reading? The audio is deleted and it leaves the record.</span>
+              <button class="button danger" onclick={discard}>Yes, discard</button>
+              <button class="button secondary" onclick={() => (confirmingDiscard = false)}>Keep</button>
+            {:else}
+              <p class="subtext" style="flex:1 1 240px">A false start or the wrong student? Discarding deletes the audio and drops it from the record.</p>
+              <button class="button danger" onclick={() => (confirmingDiscard = true)}><Trash2 size={18} aria-hidden="true" />Discard reading</button>
+            {/if}
+          </div>
+        </section>
+      {/if}
+    </div>
   {/if}
 </main>
+
+{#if changingPassage && reading}
+  <PassagePicker
+    eyebrow={student ? displayName(student) : 'Reading'}
+    title="Which passage was read?"
+    groupLabel="Choose passage"
+    selectedId={reading.passageId}
+    skipLabel="No passage"
+    skipHint="Keep the reading without a rate"
+    onpick={(id) => {
+      changingPassage = false;
+      void app.setPassage(readingId, id);
+    }}
+    onpaste={() => {
+      changingPassage = false;
+      pastingPassage = true;
+    }}
+    onclose={() => (changingPassage = false)}
+  />
+{/if}
+
+{#if pastingPassage}
+  <Modal title="Paste a new passage" eyebrow="Passage" wide onclose={() => (pastingPassage = false)}>
+    <PassageForm
+      submitLabel="Save and use for this reading"
+      onsubmit={async (title, text) => {
+        await app.pasteNewPassageFor(readingId, title, text);
+        pastingPassage = false;
+      }}
+      oncancel={() => (pastingPassage = false)}
+    />
+  </Modal>
+{/if}

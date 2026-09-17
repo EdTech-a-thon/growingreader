@@ -1,16 +1,23 @@
 <script lang="ts">
   import { useApp } from '../../app/context';
-  import { displayName } from '../../domain/roster';
+  import { displayName, initials } from '../../domain/roster';
   import { activeDuration, formatRate, formatSeconds, rate } from '../../domain/rate';
   import { formatDateTime } from '../format';
   import { isAnalysing, type CompletionState } from '../../domain/types';
   import Chart from '../Chart.svelte';
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import Mic from '@lucide/svelte/icons/mic';
+  import PassagePicker from '../PassagePicker.svelte';
+  import Archive from '@lucide/svelte/icons/archive';
 
   let { studentId }: { studentId: string } = $props();
   const app = useApp();
   const student = $derived(app.student(studentId));
   const readings = $derived(app.readingsFor(studentId));
   const completionLabel: Record<CompletionState, string> = { pending: 'Awaiting review', complete: 'Complete', incomplete: 'Incomplete', discarded: 'Discarded' };
+  let confirmingArchive = $state(false);
+  /** Step one of handing over: the passage is being picked; step two is the Start screen. */
+  let handingOver = $state(false);
 
   async function archive() {
     await app.archiveStudent(studentId);
@@ -18,20 +25,25 @@
   }
 </script>
 
-<main class="page">
+<main class="view">
   {#if !student}
     <p>Student not found.</p>
   {:else}
-    <div class="row spread">
-      <h1>{displayName(student)}</h1>
-      <div class="row">
-        <button onclick={() => app.go({ name: 'progress', studentId })}>Show progress</button>
-        <button class="danger" onclick={archive}>Archive student</button>
-      </div>
+    <div class="back-row">
+      <button class="button secondary" onclick={() => app.go({ name: 'roster' })}><ArrowLeft size={18} aria-hidden="true" />Back to roster</button>
     </div>
-
-    <div class="card">
-      <button class="primary" onclick={() => app.go({ name: 'start', studentId })}>New reading</button>
+    <div class="page-heading">
+      <div class="student-hero">
+        <span class="initials" aria-hidden="true">{initials(student)}</span>
+        <div class="heading-text">
+          <p class="eyebrow">Student</p>
+          <h1>{displayName(student)}</h1>
+          <p class="subtext">{readings.length} {readings.length === 1 ? 'reading' : 'readings'}</p>
+        </div>
+      </div>
+      <div class="heading-actions">
+        <button class="button primary" onclick={() => (app.passages.length === 0 ? app.go({ name: 'start', studentId }) : (handingOver = true))}><Mic size={18} aria-hidden="true" />New reading</button>
+      </div>
     </div>
 
     <section class="card">
@@ -54,15 +66,43 @@
               <tr>
                 <td>{formatDateTime(r.recordedAt)}</td>
                 <td>{passage?.title ?? '—'}</td>
-                <td>{formatSeconds(activeDuration(r))}</td>
-                <td>{formatRate(rate(r, passage))}</td>
-                <td>{completionLabel[r.completion]}{#if isAnalysing(r)}<span class="small muted"> · analysing</span>{/if}</td>
-                <td><button class="link" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></td>
+                <td class="num">{formatSeconds(activeDuration(r))}</td>
+                <td class="num">{formatRate(rate(r, passage))}</td>
+                <td><span class="status-pill {r.completion}">{completionLabel[r.completion]}</span>{#if isAnalysing(r)}<span class="small muted"> · analysing</span>{/if}</td>
+                <td><button class="button secondary small" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></td>
               </tr>
             {/each}
           </tbody>
         </table>
       {/if}
     </section>
+
+    <section class="card">
+      <h2>Archive</h2>
+      <div class="inline-actions">
+        {#if confirmingArchive}
+          <span class="confirm-line">Remove {student.firstName} from the roster? Their readings are kept.</span>
+          <button class="button danger" onclick={archive}>Yes, archive</button>
+          <button class="button secondary" onclick={() => (confirmingArchive = false)}>Keep</button>
+        {:else}
+          <p class="subtext" style="flex:1 1 240px">A student who has left disappears from the roster; nothing is deleted.</p>
+          <button class="button danger" onclick={() => (confirmingArchive = true)}><Archive size={18} aria-hidden="true" />Archive student</button>
+        {/if}
+      </div>
+    </section>
   {/if}
 </main>
+
+{#if handingOver && student}
+  <PassagePicker
+    eyebrow="Step 1 of 2 · {displayName(student)}"
+    title="Which passage are they reading?"
+    groupLabel="Passage"
+    skipHint="You can still pick it on review"
+    onpick={(passageId) => {
+      handingOver = false;
+      app.go({ name: 'start', studentId, passageId });
+    }}
+    onclose={() => (handingOver = false)}
+  />
+{/if}

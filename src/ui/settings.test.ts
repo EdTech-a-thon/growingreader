@@ -1,7 +1,10 @@
-import { screen } from '@testing-library/svelte';
+import { screen, waitFor } from '@testing-library/svelte';
 import { renderApp, pasteRoster, pastePassage, goTo, recordReading } from '../test/harness';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { CAMP_TEXT } from '../test/fixtures/passages';
+import { createFakeSheetTransport } from '../adapters/sheets/fake-google';
+import { createSheetsClient } from '../adapters/sheets/sheets-client';
+import type { BrokerClient } from '../adapters/sheets/broker';
 
 const DAY = 86_400_000;
 
@@ -36,7 +39,7 @@ describe('Data ownership', () => {
     const h = await seededWithReading();
     await goTo(h, 'Settings');
     await h.user.click(screen.getByRole('button', { name: /export backup/i }));
-    expect(files[0].name).toMatch(/reading-fluency-backup-.*\.json/);
+    expect(files[0].name).toMatch(/growingreader-backup-.*\.json/);
     const backup = JSON.parse(await files[0].blob.text());
     expect(backup.students).toMatchObject([{ firstName: 'Ada' }]);
     expect(backup.passages).toMatchObject([{ title: 'Camp' }]);
@@ -109,28 +112,66 @@ describe('Data ownership', () => {
   });
 });
 
+describe('Google Sheets sync', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test('the cloud button creates a sheet and later roster changes save automatically', async () => {
+    const transport = createFakeSheetTransport();
+    const broker: BrokerClient = {
+      getConnection: vi.fn(async () => ({ connected: true, status: 'active' as const, googleEmail: 'teacher@example.org' })),
+      signIn: vi.fn(async () => undefined),
+      connectDrive: vi.fn(async () => undefined),
+      signOut: vi.fn(async () => undefined),
+    };
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+    const h = await renderApp({ sheets: createSheetsClient(transport), broker });
+    await pasteRoster(h, 'Ada Lovelace');
+
+    await h.user.click(screen.getByRole('button', { name: /google sheets sync/i }));
+    expect(screen.getByRole('dialog', { name: /sync to google sheets/i })).toHaveTextContent(/recordings/i);
+    await h.user.click(screen.getByRole('button', { name: /continue with google/i }));
+    await screen.findByRole('link', { name: /open spreadsheet/i });
+
+    const book = transport.inspect('fake-sheet-1');
+    expect(book.values.Students[1]).toContain('Ada');
+    expect(book.values.Readings[0]).toContain('transcript');
+    expect(await h.storage.getSettings()).toMatchObject({ googleSheets: { spreadsheetId: 'fake-sheet-1', googleEmail: 'teacher@example.org' } });
+
+    await h.user.click(screen.getByRole('button', { name: /^close$/i }));
+    await pasteRoster(h, 'Grace Hopper');
+    await waitFor(() => expect(transport.inspect('fake-sheet-1').values.Students).toHaveLength(3), { timeout: 2_000 });
+
+    await goTo(h, 'Settings');
+    expect(screen.getByRole('button', { name: /sync details/i })).toBeInTheDocument();
+  });
+});
+
 describe('Speech model', () => {
-  test('the first launch shows a download progress bar until the model is ready', async () => {
+  test('the model downloads in the background; the roster says nothing and Settings shows progress', async () => {
     const { FakeTranscriber } = await import('../adapters/transcriber/FakeTranscriber');
     const transcriber = new FakeTranscriber();
     let release!: () => void;
     transcriber.loadDelay = new Promise<void>((r) => (release = r));
     const h = await renderApp({ transcriber });
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByText(/speech model/i)).not.toBeInTheDocument();
+    await goTo(h, 'Settings');
     expect(screen.getByRole('progressbar', { name: /speech model download/i })).toBeInTheDocument();
     release();
-    await screen.findByText(/paste your roster/i);
-    await vi.waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument());
-    void h;
+    await screen.findByText(/^Ready\./);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
-  test('a failed download is explained and can be retried from Settings, after which waiting readings are transcribed', async () => {
+  test('a failed download is the only model news the teacher gets, and can be retried, after which waiting readings are transcribed', async () => {
     const { FakeTranscriber } = await import('../adapters/transcriber/FakeTranscriber');
     const { CAMP_CLEAN } = await import('../test/fixtures/passages');
     const transcriber = new FakeTranscriber();
     transcriber.loadError = new Error('offline');
     transcriber.hears(CAMP_CLEAN);
     const h = await renderApp({ transcriber });
-    expect(screen.getByText(/speech model isn't available on this device \(offline\)/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/speech model isn't available on this device \(offline\)/i);
+    await h.user.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await goTo(h, 'Passages');
     await pastePassage(h, 'Camp', CAMP_TEXT);
     await goTo(h, 'Roster');

@@ -1,14 +1,18 @@
 <script lang="ts">
   import { useApp } from '../../app/context';
-  import { displayName } from '../../domain/roster';
-  import { rate, formatRate } from '../../domain/rate';
+  import { displayName, initials, parseRoster } from '../../domain/roster';
   import { formatDate, formatDateTime } from '../format';
+  import Modal from '../Modal.svelte';
+  import Plus from '@lucide/svelte/icons/plus';
+  import UserPlus from '@lucide/svelte/icons/user-plus';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
 
   const app = useApp();
   let pasting = $state(false);
   let addingOne = $state(false);
   let pasted = $state('');
   let single = $state('');
+  const pastedCount = $derived(parseRoster(pasted).length);
 
   async function addStudents() {
     await app.addStudents(pasted);
@@ -22,98 +26,120 @@
     addingOne = false;
   }
 
-  function summary(studentId: string) {
+  /** When they last read; the numbers live on the student's page. */
+  function summary(studentId: string): { text: string; tone: 'none' | 'pending' } {
     const last = app.lastReadingFor(studentId);
-    if (!last) return 'No readings yet';
-    const r = rate(last, app.passage(last.passageId));
+    if (!last) return { text: 'No readings yet', tone: 'none' };
     const when = formatDate(last.recordedAt);
-    if (last.completion === 'pending') return `${when} · awaiting review`;
-    return r === undefined ? when : `${when} · ${formatRate(r)} words per minute`;
+    if (last.completion === 'pending') return { text: `Last read ${when} · awaiting review`, tone: 'pending' };
+    return { text: `Last read ${when}`, tone: 'none' };
   }
 </script>
 
-<main class="page">
-  <h1>Roster</h1>
+<main class="view">
+  <div class="page-heading">
+    <div class="heading-text">
+      <p class="eyebrow">Students</p>
+      <h1>Roster</h1>
+      <p class="subtext">Tap a name to see their readings and start a new one.</p>
+    </div>
+    {#if app.activeStudents.length > 0}
+      <div class="heading-actions">
+        <button class="button secondary" onclick={() => ((addingOne = true), (pasting = false))}><UserPlus size={18} aria-hidden="true" />Add one student</button>
+        <button class="button primary" onclick={() => ((pasting = true), (addingOne = false))}><Plus size={18} aria-hidden="true" />Paste roster</button>
+      </div>
+    {/if}
+  </div>
 
   {#if app.lostReading}
     {@const lostStudent = app.student(app.lostReading.studentId)}
-    <div class="notice" role="alert">
-      A reading for <strong>{lostStudent ? displayName(lostStudent) : 'a student'}</strong>
-      started {formatDate(app.lostReading.startedAt)} was lost because the tab closed before Done was tapped. Please redo it.
-      <button class="link" onclick={() => app.dismissLostReading()}>Dismiss</button>
+    <div class="banner warn-banner" role="alert">
+      <span class="banner-mark">!</span>
+      <span class="grow">
+        A reading for <strong>{lostStudent ? displayName(lostStudent) : 'a student'}</strong>
+        started {formatDate(app.lostReading.startedAt)} was lost because the tab closed before Done was tapped. Please redo it.
+      </span>
+      <button class="text-button" onclick={() => app.dismissLostReading()}>Dismiss</button>
     </div>
   {/if}
 
   {#if app.backupDue}
-    <div class="notice">
-      It has been a while since your last backup. <button class="link" onclick={() => app.go({ name: 'settings' })}>Export a backup</button>
-    </div>
-  {/if}
-
-  {#if app.model.state === 'loading'}
-    <div class="card" aria-live="polite">
-      <p class="small" style="margin:0 0 0.5rem">Getting the speech model ready ({Math.round(app.model.progress * 100)}%). This only happens once. You can record in the meantime.</p>
-      <div class="progress" role="progressbar" aria-label="Speech model download" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(app.model.progress * 100)}>
-        <div style="width:{app.model.progress * 100}%"></div>
-      </div>
+    <div class="banner warn-banner">
+      <span class="banner-mark">!</span>
+      <span class="grow">It has been a while since your last backup.</span>
+      <button class="text-button" onclick={() => app.go({ name: 'settings' })}>Export a backup</button>
     </div>
   {/if}
 
   {#if app.processing.length > 0}
-    <div class="card small" aria-label="Still being analysed">
-      <strong>Still being analysed</strong>
-      <ul style="margin:0.25rem 0 0; padding-left:1.25rem">
-        {#each app.processing as r (r.id)}
-          {@const s = app.student(r.studentId)}
-          <li>{s ? displayName(s) : 'Student'} · {formatDateTime(r.recordedAt)} <button class="link" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></li>
-        {/each}
-      </ul>
+    <div class="banner info-banner" aria-label="Still being analysed">
+      <span class="banner-mark">…</span>
+      <span class="grow">
+        <strong>Still being analysed</strong>
+        <ul>
+          {#each app.processing as r (r.id)}
+            {@const s = app.student(r.studentId)}
+            <li>{s ? displayName(s) : 'Student'} · {formatDateTime(r.recordedAt)} <button class="link-button" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></li>
+          {/each}
+        </ul>
+      </span>
     </div>
   {/if}
 
-  {#if app.model.state === 'failed'}
-    <p class="small muted">The speech model isn't available on this device ({app.model.message}). Everything still works: you choose the passage yourself on review.</p>
+  {#if app.activeStudents.length === 0}
+    <section class="empty-state">
+      <div class="empty-icon">👋</div>
+      <h2>Add your students</h2>
+      <p>Paste your roster to get started. Tap a student's name to see their readings and start a new one.</p>
+      <div class="empty-actions">
+        <button class="button primary" onclick={() => (pasting = true)}><Plus size={18} aria-hidden="true" />Paste roster</button>
+        <button class="button secondary" onclick={() => (addingOne = true)}><UserPlus size={18} aria-hidden="true" />Add one student</button>
+      </div>
+    </section>
+  {:else}
+    <section class="student-grid" aria-label="Students">
+      {#each app.activeStudents as student, index (student.id)}
+        {@const s = summary(student.id)}
+        <button class="student-card" aria-labelledby="student-{student.id}" aria-describedby="summary-{student.id}" onclick={() => app.go({ name: 'student', studentId: student.id })}>
+            <span class={'initials color-' + ((index % 5) + 1)} aria-hidden="true">{initials(student)}</span>
+            <span class="student-details">
+              <span class="student-name" id="student-{student.id}">{displayName(student)}</span>
+              <span class="student-status {s.tone}" id="summary-{student.id}">{s.text}</span>
+            </span>
+          <span class="chevron" aria-hidden="true"><ChevronRight size={22} /></span>
+        </button>
+      {/each}
+    </section>
   {/if}
+</main>
 
-  <div class="row" style="margin-bottom:1rem">
-    <button onclick={() => ((pasting = !pasting), (addingOne = false))}>Paste roster</button>
-    <button onclick={() => ((addingOne = !addingOne), (pasting = false))}>Add one student</button>
-  </div>
-
-  {#if pasting}
-    <form class="card" onsubmit={(e) => (e.preventDefault(), addStudents())}>
+{#if pasting}
+  <Modal title="Add your students" eyebrow="Roster" onclose={() => (pasting = false)}>
+    <form onsubmit={(e) => (e.preventDefault(), addStudents())}>
       <div class="field">
         <label for="roster-paste">One student per line (first name, then last name)</label>
         <textarea id="roster-paste" bind:value={pasted} placeholder={'Ada Lovelace\nGrace Hopper'}></textarea>
       </div>
-      <button class="primary" type="submit">Add students</button>
+      <p class="count-line">{pastedCount ? `${pastedCount} ${pastedCount === 1 ? 'student' : 'students'} ready to add` : ''}</p>
+      <footer class="modal-actions">
+        <button class="button secondary" type="button" onclick={() => (pasting = false)}>Cancel</button>
+        <button class="button primary" type="submit" disabled={pastedCount === 0}>Add students</button>
+      </footer>
     </form>
-  {/if}
+  </Modal>
+{/if}
 
-  {#if addingOne}
-    <form class="card" onsubmit={(e) => (e.preventDefault(), addOne())}>
+{#if addingOne}
+  <Modal title="Add one student" eyebrow="Roster" onclose={() => (addingOne = false)}>
+    <form onsubmit={(e) => (e.preventDefault(), addOne())}>
       <div class="field">
         <label for="single-name">Student name</label>
         <input id="single-name" bind:value={single} placeholder="First Last" />
       </div>
-      <button class="primary" type="submit">Add student</button>
+      <footer class="modal-actions">
+        <button class="button secondary" type="button" onclick={() => (addingOne = false)}>Cancel</button>
+        <button class="button primary" type="submit" disabled={!single.trim()}>Add student</button>
+      </footer>
     </form>
-  {/if}
-
-  {#if app.activeStudents.length === 0}
-    <p class="muted">Paste your roster to get started. Tap a student's name to hand them the device.</p>
-  {:else}
-    <p class="small muted">Tap a name to start a reading. “History” opens the student's chart and past readings.</p>
-    <ul class="roster">
-      {#each app.activeStudents as student (student.id)}
-        <li>
-          <button class="start-reading" aria-labelledby="student-{student.id}" aria-describedby="summary-{student.id}" onclick={() => app.go({ name: 'start', studentId: student.id })}>
-            <span class="name" id="student-{student.id}">{displayName(student)}</span>
-            <span class="small muted" id="summary-{student.id}">{summary(student.id)}</span>
-          </button>
-          <button class="history" aria-label="History for {displayName(student)}" onclick={() => app.go({ name: 'student', studentId: student.id })}>History</button>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-</main>
+  </Modal>
+{/if}

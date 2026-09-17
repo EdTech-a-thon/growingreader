@@ -27,7 +27,7 @@
   const duplicates = $derived(app.nearDuplicatesOf(text, excludeId));
 </script>
 
-<form class="card" onsubmit={(e) => (e.preventDefault(), onsubmit(title, text))}>
+<form onsubmit={(e) => (e.preventDefault(), onsubmit(title, text))}>
   <div class="field">
     <label for="passage-title">Title</label>
     <input id="passage-title" bind:value={title} required />
@@ -35,19 +35,20 @@
   <div class="field">
     <label for="passage-text">Text</label>
     <textarea id="passage-text" bind:value={text} required></textarea>
-    <p class="small muted">
-      {wordCount} {wordCount === 1 ? 'word' : 'words'}. Counted like the paper copy: the title is not counted, and a hyphenated word such as “well-known” counts once.
+    <p class="count-line">
+      {wordCount} {wordCount === 1 ? 'word' : 'words'}. <span class="field-help" style="display:inline;font-weight:600">Counted like the paper copy: the title is not counted, and a hyphenated word such as “well-known” counts once.</span>
     </p>
   </div>
   {#if duplicates.length > 0}
-    <div class="notice" role="alert">
-      This looks nearly identical to {duplicates.map((d) => `“${d.title}”`).join(' and ')}. Two near-copies make identification unreliable; edit the existing passage instead if this is a fix.
+    <div class="banner warn-banner" role="alert">
+      <span class="banner-mark">!</span>
+      <span class="grow">This looks nearly identical to {duplicates.map((d) => `“${d.title}”`).join(' and ')}. Two near-copies make identification unreliable; edit the existing passage instead if this is a fix.</span>
     </div>
   {/if}
-  <div class="row">
-    <button class="primary" type="submit" disabled={!title.trim() || wordCount === 0}>{submitLabel}</button>
+  <footer class="modal-actions" class:single={!oncancel}>
     {#if oncancel}
-      <button type="button" onclick={oncancel}>Cancel</button>
+      <button class="button secondary" type="button" onclick={oncancel}>Cancel</button>
     {/if}
-  </div>
+    <button class="button primary" type="submit" disabled={!title.trim() || wordCount === 0}>{submitLabel}</button>
+  </footer>
 </form>

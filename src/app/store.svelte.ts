@@ -1,7 +1,11 @@
 import type { Storage, Snapshot } from '../adapters/storage/Storage';
 import type { Microphone, MicrophoneHandle } from '../adapters/microphone/Microphone';
 import type { Transcriber } from '../adapters/transcriber/Transcriber';
-import { isAnalysing, isDiscarded, newId, type CompletionState, type Id, type Passage, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student, type TimingChoice } from '../domain/types';
+import { isAnalysing, isDiscarded, newId, type Bounds, type CompletionState, type Id, type Passage, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student } from '../domain/types';
+import type { BrokerClient, DriveConnection } from '../adapters/sheets/broker';
+import { BrokerError } from '../adapters/sheets/broker';
+import type { SheetsClient, SyncData } from '../adapters/sheets/sheets-client';
+import { clampBounds } from '../domain/rate';
 import { parseName, parseRoster, type ParsedName } from '../domain/roster';
 import { alignToPassage, assessCompletion, countWords, identifyPassage, passageSimilarity, refineTiming, tokenize, trimSilence } from '../analysis';
 
@@ -12,12 +16,15 @@ export interface AppDeps {
   now?: () => number;
   /** How long the teacher holds to unlock the Done screen. */
   longPressMs?: number;
+  /** Optional in tests; production supplies the Google Sheets and auth adapters. */
+  sheets?: SheetsClient;
+  broker?: BrokerClient;
+  clearSheetAuthorization?: () => void;
 }
 
 export type Screen =
   | { name: 'roster' }
   | { name: 'student'; studentId: Id }
-  | { name: 'progress'; studentId: Id }
   | { name: 'start'; studentId: Id; passageId?: Id }
   | { name: 'recording' }
   | { name: 'done'; readingId: Id }
@@ -26,6 +33,7 @@ export type Screen =
   | { name: 'settings' };
 
 export type ModelStatus = { state: 'loading'; progress: number } | { state: 'ready' } | { state: 'failed'; message: string };
+export type SyncStatus = 'not-synced' | 'saved' | 'saving' | 'offline' | 'reconnect';
 
 /** Level the meter must see before Start is offered; a guess until tried on a Chromebook. */
 export const START_LEVEL_THRESHOLD = 0.05;
@@ -51,6 +59,10 @@ export class App {
   micHeardSound = $state(false);
   micError = $state<string | undefined>(undefined);
   storageUsage = $state<StorageUsage | undefined>(undefined);
+  syncDialogOpen = $state(false);
+  syncStatus = $state<SyncStatus>('not-synced');
+  syncError = $state('');
+  driveConnection = $state<DriveConnection | null>(null);
 
   readonly longPressMs: number;
   private readonly now: () => number;
@@ -58,6 +70,11 @@ export class App {
   private modelReady: Promise<boolean> = Promise.resolve(false);
   private queue = $state<Id[]>([]);
   private draining = false;
+  private dataRevision = 0;
+  private syncPending = false;
+  private syncTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryDelay = 2_000;
 
   constructor(private readonly deps: AppDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -78,12 +95,20 @@ export class App {
       this.lostReading = this.settings.readingInProgress;
       await this.saveSettings({ ...this.settings, readingInProgress: undefined });
     }
+    this.syncStatus = this.settings.googleSheets ? 'saved' : 'not-synced';
     this.ready = true;
     this.loadModel();
     for (const r of this.readings) {
       if (!isDiscarded(r) && isAnalysing(r)) this.enqueue(r.id);
     }
     void this.refreshStorageUsage();
+    if (this.settings.googleSheets && this.deps.sheets) void this.syncNow();
+  }
+
+  dispose() {
+    clearTimeout(this.syncTimer);
+    clearTimeout(this.retryTimer);
+    this.closeMicrophone();
   }
 
   loadModel() {
@@ -168,6 +193,7 @@ export class App {
     const student: Student = { id: newId(), ...name, archived: false, createdAt: this.now() };
     await this.deps.storage.putStudent(plain(student));
     this.students = [...this.students, student];
+    this.dataChanged();
   }
 
   async archiveStudent(id: Id) {
@@ -179,6 +205,7 @@ export class App {
   private async saveStudent(student: Student) {
     await this.deps.storage.putStudent(plain(student));
     this.students = this.students.map((s) => (s.id === student.id ? student : s));
+    this.dataChanged();
   }
 
   // ---- passages --------------------------------------------------------
@@ -192,6 +219,7 @@ export class App {
     const passage: Passage = { id: newId(), title: title.trim(), text, wordCount: countWords(text), createdAt: this.now() };
     await this.deps.storage.putPassage(plain(passage));
     this.passages = [...this.passages, passage];
+    this.dataChanged();
     return passage;
   }
 
@@ -201,12 +229,14 @@ export class App {
     const passage: Passage = { ...existing, title: title.trim(), text, wordCount: countWords(text) };
     await this.deps.storage.putPassage(plain(passage));
     this.passages = this.passages.map((p) => (p.id === id ? passage : p));
+    this.dataChanged();
     for (const r of this.readings) if (r.passageId === id) await this.realign(r.id);
   }
 
   async deletePassage(id: Id) {
     await this.deps.storage.deletePassage(id);
     this.passages = this.passages.filter((p) => p.id !== id);
+    this.dataChanged();
     for (const r of this.readings) {
       if (r.passageId === id) await this.saveReading(withPassage(r, undefined));
     }
@@ -269,12 +299,14 @@ export class App {
       sampleCount: capture.samples.length,
       tapBounds: { start: 0, end: duration },
       timing: 'auto',
-      completion: 'pending',
+      // Complete until the analysis suggests otherwise or the teacher says so (ADR-0001).
+      completion: 'complete',
       analysis: 'queued',
     };
     await this.deps.storage.putAudio(reading.id, capture.samples);
     await this.deps.storage.putReading(plain(reading));
     this.readings = [...this.readings, reading];
+    this.dataChanged();
     await this.saveSettings({ ...this.settings, readingInProgress: undefined });
     this.screen = { name: 'done', readingId: reading.id };
     this.enqueue(reading.id);
@@ -302,7 +334,7 @@ export class App {
 
   async setCompletion(readingId: Id, completion: CompletionState) {
     const r = this.reading(readingId);
-    if (r) await this.saveReading({ ...r, completion });
+    if (r) await this.saveReading({ ...r, completion, completionConfirmed: true });
   }
 
   async setErrors(readingId: Id, errors: number | undefined) {
@@ -315,9 +347,15 @@ export class App {
     if (r) await this.saveReading({ ...r, note: note.trim() || undefined });
   }
 
-  async setTiming(readingId: Id, timing: TimingChoice) {
+  /** The teacher dragged a handle: from here on her bounds stand, whatever the analysis later finds. */
+  async setBounds(readingId: Id, bounds: Bounds) {
     const r = this.reading(readingId);
-    if (r) await this.saveReading({ ...r, timing });
+    if (r) await this.saveReading({ ...r, timing: 'manual', manualBounds: clampBounds(bounds, r.sampleCount / r.sampleRate) });
+  }
+
+  async resetTiming(readingId: Id) {
+    const r = this.reading(readingId);
+    if (r) await this.saveReading({ ...r, timing: 'auto', manualBounds: undefined });
   }
 
   async discardReading(readingId: Id) {
@@ -340,6 +378,7 @@ export class App {
   private async saveReading(reading: Reading) {
     await this.deps.storage.putReading(plain(reading));
     this.readings = this.readings.map((r) => (r.id === reading.id ? reading : r));
+    this.dataChanged();
   }
 
   private async saveSettings(settings: Settings) {
@@ -430,7 +469,9 @@ export class App {
     }
     const completionAssessment = assessCompletion(r.transcript.words, passage.text);
     const transcriptBounds = refineTiming(alignToPassage(r.transcript.words, passage.text), r.transcript.words);
-    await this.saveReading({ ...r, completionAssessment, transcriptBounds });
+    // Until the teacher has chosen, a reading that probably stopped early loses its default Complete and waits for her.
+    const completion = r.completionConfirmed || r.completion === 'discarded' ? r.completion : completionAssessment.probablyIncomplete ? 'pending' : 'complete';
+    await this.saveReading({ ...r, completionAssessment, transcriptBounds, completion });
   }
 
   // ---- data ownership --------------------------------------------------
@@ -443,15 +484,178 @@ export class App {
 
   async importBackup(snapshot: Snapshot) {
     if (!Array.isArray(snapshot.students) || !Array.isArray(snapshot.passages) || !Array.isArray(snapshot.readings)) {
-      throw new Error('Not a Reading Fluency backup');
+      throw new Error('Not a Growing Reader backup');
     }
     const readings = snapshot.readings.map((r) => ({ ...r, hasAudio: false }));
-    await this.deps.storage.replaceAll(plain({ ...snapshot, readings, settings: snapshot.settings ?? {} }));
+    // A backup is portable data, not authority to connect another browser to a Drive file.
+    const settings: Settings = snapshot.settings?.lastBackupAt !== undefined ? { lastBackupAt: snapshot.settings.lastBackupAt } : {};
+    await this.deps.storage.replaceAll(plain({ ...snapshot, readings, settings }));
     this.students = snapshot.students;
     this.passages = snapshot.passages;
     this.readings = readings;
-    this.settings = snapshot.settings ?? {};
+    this.settings = settings;
+    this.syncStatus = 'not-synced';
+    this.dataChanged();
     void this.refreshStorageUsage();
+  }
+
+  // ---- Google Sheets ---------------------------------------------------
+
+  get syncLink() {
+    return this.settings.googleSheets;
+  }
+
+  get syncLabel(): string {
+    if (!this.syncLink) return 'Sync';
+    if (this.syncStatus === 'saving') return 'Saving…';
+    if (this.syncStatus === 'offline') return 'Offline · retrying';
+    if (this.syncStatus === 'reconnect') return 'Reconnect';
+    return 'Saved';
+  }
+
+  async openSyncDialog() {
+    this.syncDialogOpen = true;
+    this.syncError = '';
+    if (!this.syncLink) this.syncStatus = 'not-synced';
+    if (!this.deps.broker) return;
+    try {
+      this.driveConnection = await this.deps.broker.getConnection();
+    } catch (caught) {
+      this.syncError = caught instanceof Error ? caught.message : 'Could not reach the sign-in service.';
+    }
+  }
+
+  closeSyncDialog() {
+    this.syncDialogOpen = false;
+  }
+
+  private syncData(): SyncData {
+    return { students: this.students, passages: this.passages, readings: this.readings };
+  }
+
+  private async ensureDrive(): Promise<DriveConnection | null> {
+    if (!this.deps.broker) throw new Error('Google Sheets sync is not configured.');
+    const current = await this.deps.broker.getConnection();
+    this.driveConnection = current;
+    if (!current) {
+      await this.deps.broker.signIn();
+      return null;
+    }
+    if (!current.connected || current.status === 'invalid') {
+      await this.deps.broker.connectDrive();
+      return null;
+    }
+    return current;
+  }
+
+  async createGoogleSheet() {
+    if (!this.deps.sheets) throw new Error('Google Sheets sync is not configured.');
+    this.syncError = '';
+    try {
+      const account = await this.ensureDrive();
+      if (!account) return;
+      this.syncStatus = 'saving';
+      const revision = this.dataRevision;
+      const created = await this.deps.sheets.create('Growing Reader data', this.syncData());
+      await this.saveSettings({
+        ...this.settings,
+        googleSheets: {
+          spreadsheetId: created.spreadsheetId,
+          spreadsheetUrl: created.spreadsheetUrl,
+          googleEmail: account.googleEmail ?? '',
+          lastSyncedAt: this.now(),
+        },
+      });
+      this.syncStatus = 'saved';
+      window.open(created.spreadsheetUrl, '_blank', 'noopener');
+      if (this.dataRevision !== revision) this.scheduleSync();
+    } catch (caught) {
+      this.handleSyncError(caught);
+    }
+  }
+
+  async syncNow() {
+    const link = this.syncLink;
+    if (!link || !this.deps.sheets) return;
+    if (this.syncStatus === 'saving') {
+      this.syncPending = true;
+      return;
+    }
+    clearTimeout(this.syncTimer);
+    this.syncPending = false;
+    this.syncStatus = 'saving';
+    this.syncError = '';
+    const revision = this.dataRevision;
+    try {
+      await this.deps.sheets.push(link.spreadsheetId, this.syncData());
+      // An import or disconnect may have removed the link while the network request was in flight.
+      if (this.syncLink?.spreadsheetId !== link.spreadsheetId) return;
+      await this.saveSettings({ ...this.settings, googleSheets: { ...link, lastSyncedAt: this.now() } });
+      clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
+      this.retryDelay = 2_000;
+      this.syncStatus = 'saved';
+      if (this.syncPending || this.dataRevision !== revision) this.scheduleSync();
+    } catch (caught) {
+      this.handleSyncError(caught, true);
+    }
+  }
+
+  async reconnectDrive() {
+    if (!this.deps.broker) return;
+    try {
+      await this.deps.broker.connectDrive();
+    } catch (caught) {
+      this.handleSyncError(caught);
+    }
+  }
+
+  async disconnectGoogleSheets() {
+    if (this.syncStatus === 'saving') return;
+    clearTimeout(this.syncTimer);
+    clearTimeout(this.retryTimer);
+    await this.saveSettings({ ...this.settings, googleSheets: undefined });
+    this.syncStatus = 'not-synced';
+    this.syncError = '';
+  }
+
+  async signOutGoogle() {
+    if (!this.deps.broker) return;
+    await this.deps.broker.signOut();
+    this.deps.clearSheetAuthorization?.();
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.driveConnection = null;
+    if (this.syncLink) this.syncStatus = 'reconnect';
+    this.syncDialogOpen = false;
+  }
+
+  retrySync() {
+    if (this.syncLink) void this.syncNow();
+  }
+
+  private dataChanged() {
+    this.dataRevision += 1;
+    this.syncPending = true;
+    this.scheduleSync();
+  }
+
+  private scheduleSync() {
+    if (!this.syncLink || !this.deps.sheets) return;
+    clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => void this.syncNow(), 900);
+  }
+
+  private handleSyncError(caught: unknown, retry = false) {
+    this.syncError = caught instanceof Error ? caught.message : 'Google Sheets could not be saved.';
+    this.syncStatus = caught instanceof BrokerError && caught.needsConnection ? 'reconnect' : 'offline';
+    if (!retry || this.syncStatus === 'reconnect' || this.retryTimer || !this.syncLink) return;
+    const delay = this.retryDelay;
+    this.retryDelay = Math.min(delay * 2, 60_000);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      void this.syncNow();
+    }, delay);
   }
 }
 
@@ -460,15 +664,16 @@ function plain<T>(value: T): T {
   return $state.snapshot(value) as T;
 }
 
-/** A reading with its passage changed forgets everything that was aligned against the old one. */
+/** A reading with its passage changed forgets everything that was aligned against the old one, including a doubt it raised. */
 function withPassage(reading: Reading, passageId: Id | undefined): Reading {
-  return { ...reading, passageId, completionAssessment: undefined, transcriptBounds: undefined };
+  const completion = !reading.completionConfirmed && reading.completion === 'pending' ? 'complete' : reading.completion;
+  return { ...reading, passageId, completion, completionAssessment: undefined, transcriptBounds: undefined };
 }
 
 /** What a discarded reading leaves behind: enough to keep lists and the queue consistent, nothing else. */
 function tombstone(reading: Reading): Reading {
   const { id, studentId, recordedAt, sampleRate, sampleCount, tapBounds } = reading;
-  return { id, studentId, recordedAt, sampleRate, sampleCount, tapBounds, hasAudio: false, timing: 'tap', completion: 'discarded', analysis: 'done' };
+  return { id, studentId, recordedAt, sampleRate, sampleCount, tapBounds, hasAudio: false, timing: 'auto', completion: 'discarded', analysis: 'done' };
 }
 
 function byName(a: Student, b: Student) {

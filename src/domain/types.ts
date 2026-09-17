@@ -27,9 +27,10 @@ export interface Bounds {
   end: number;
 }
 
-/** Which of a reading's candidate bounds the teacher chose; 'auto' takes the most refined available. */
+/** Where a reading's automatic bounds came from: tap-to-tap, silence trimming, or the transcript's first and last word. */
 export type TimingSource = 'tap' | 'silence' | 'transcript';
-export type TimingChoice = TimingSource | 'auto';
+/** 'auto' takes the most refined bounds available; 'manual' is the teacher's own handles, seeded from the auto bounds. */
+export type TimingChoice = 'auto' | 'manual';
 
 export interface TranscriptWord {
   text: string;
@@ -77,11 +78,16 @@ export interface Reading {
   tapBounds: Bounds;
   silenceBounds?: Bounds;
   transcriptBounds?: Bounds;
+  /** Where the teacher dragged the handles to; in force while `timing` is 'manual'. */
+  manualBounds?: Bounds;
   timing: TimingChoice;
   transcript?: Transcript;
   identification?: Identification;
   completionAssessment?: CompletionAssessment;
+  /** Complete by default; the app's assessment may move it to 'pending' until the teacher has chosen. */
   completion: CompletionState;
+  /** Set once the teacher taps Complete or Incomplete; from then on the assessment never changes `completion`. */
+  completionConfirmed?: boolean;
   errors?: number;
   note?: string;
   analysis: AnalysisStage;
@@ -93,9 +99,17 @@ export interface ReadingInProgress {
   startedAt: number;
 }
 
+export interface SheetSyncLink {
+  spreadsheetId: string;
+  spreadsheetUrl: string;
+  googleEmail: string;
+  lastSyncedAt?: number;
+}
+
 export interface Settings {
   lastBackupAt?: number;
   readingInProgress?: ReadingInProgress;
+  googleSheets?: SheetSyncLink;
 }
 
 export interface StorageUsage {

@@ -1,14 +1,17 @@
 import { screen, waitFor, within } from '@testing-library/svelte';
-import { renderApp, pasteRoster, pastePassage, goTo, speechCapture, recordReading, unlockDoneScreen, tapStart } from '../test/harness';
+import { renderApp, pasteRoster, pastePassage, goTo, speechCapture, recordReading, unlockDoneScreen, tapStart, openStart } from '../test/harness';
 import { FakeMicrophone } from '../adapters/microphone/FakeMicrophone';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { CAMP_TEXT } from '../test/fixtures/passages';
 
 describe('Handing the device to a student', () => {
-  test('tapping a student lands straight on the start screen with their name and a level meter', async () => {
+  test('tapping a student opens their page; New reading lands on the start screen with their name and a level meter', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    expect(h.microphone.opened).toBe(false);
+    await h.user.click(screen.getByRole('button', { name: /new reading/i }));
     expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
     expect(screen.getByRole('meter', { name: /microphone level/i })).toBeInTheDocument();
     expect(h.microphone.opened).toBe(true);
@@ -17,7 +20,7 @@ describe('Handing the device to a student', () => {
   test('Start is disabled until the microphone hears sound', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await openStart(h, 'Ada Lovelace');
     await screen.findByText(/waiting for sound/i);
     expect(screen.getByRole('button', { name: /^start$/i })).toBeDisabled();
     h.microphone.emitLevel(0.01);
@@ -31,14 +34,14 @@ describe('Handing the device to a student', () => {
     microphone.failWith = new Error('Permission denied');
     const h = await renderApp({ microphone });
     await pasteRoster(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await openStart(h, 'Ada Lovelace');
     expect(await screen.findByRole('alert')).toHaveTextContent(/Permission denied/);
   });
 
   test('the recording screen shows an indicator and Done, with no timer', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await openStart(h, 'Ada Lovelace');
     await tapStart(h);
     expect(screen.getByText(/recording/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^done$/i })).toBeInTheDocument();
@@ -50,7 +53,7 @@ describe('Handing the device to a student', () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     h.microphone.capture = speechCapture(45);
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await openStart(h, 'Ada Lovelace');
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     expect(await screen.findByText(/nice work/i)).toBeInTheDocument();
@@ -64,7 +67,7 @@ describe('Handing the device to a student', () => {
   test('a short tap does not unlock the Done screen; a long press does', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await openStart(h, 'Ada Lovelace');
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     const unlock = await screen.findByRole('button', { name: /hold to unlock/i });
@@ -79,9 +82,36 @@ describe('Handing the device to a student', () => {
     await pasteRoster(h, 'Ada Lovelace');
     await recordReading(h, 'Ada Lovelace', { seconds: 45 });
     const [reading] = await h.storage.listReadings();
-    expect(reading).toMatchObject({ tapBounds: { start: 0, end: 45 }, completion: 'pending', hasAudio: true });
+    expect(reading).toMatchObject({ tapBounds: { start: 0, end: 45 }, completion: 'complete', hasAudio: true });
     expect(await h.storage.getAudio(reading.id)).toHaveLength(45 * 16000);
-    expect(screen.getByText(/time spent reading/i).parentElement).toHaveTextContent(/45\.0 s|44\.\d s/);
+    // Silence trimming may already have landed, so only the shape of the timing line is fixed here.
+    expect(screen.getByRole('group', { name: /^timing$/i })).toHaveTextContent(/\d\.\d s → 4[45]\.\d s/);
+  });
+
+  test('New reading first asks which passage, as step one of two', async () => {
+    const h = await renderApp();
+    await goTo(h, 'Passages');
+    await pastePassage(h, 'Camp', CAMP_TEXT);
+    await goTo(h, 'Roster');
+    await pasteRoster(h, 'Ada Lovelace');
+    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await h.user.click(screen.getByRole('button', { name: /new reading/i }));
+    const step = screen.getByRole('dialog', { name: /which passage/i });
+    expect(step).toHaveTextContent(/step 1 of 2/i);
+    expect(within(step).getByRole('button', { name: /^Camp/ })).toBeInTheDocument();
+    expect(within(step).getByRole('button', { name: /skip for now/i })).toBeInTheDocument();
+    await h.user.click(within(step).getByRole('button', { name: /skip for now/i }));
+    expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    expect(screen.getByText(/no passage chosen/i)).toBeInTheDocument();
+  });
+
+  test('with no passages stored, New reading goes straight to the start screen', async () => {
+    const h = await renderApp();
+    await pasteRoster(h, 'Ada Lovelace');
+    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    await h.user.click(screen.getByRole('button', { name: /new reading/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
   });
 
   test('a passage chosen before handing over is already on the reading', async () => {
@@ -90,14 +120,12 @@ describe('Handing the device to a student', () => {
     await pastePassage(h, 'Camp', CAMP_TEXT);
     await goTo(h, 'Roster');
     await pasteRoster(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
-    await h.user.click(screen.getByRole('button', { name: /choose passage/i }));
-    await h.user.click(within(screen.getByRole('group', { name: /^passage$/i })).getByRole('button', { name: 'Camp' }));
+    await openStart(h, 'Ada Lovelace', 'Camp');
     expect(screen.getByText(/^Camp/)).toBeInTheDocument();
     await tapStart(h);
     await h.user.click(screen.getByRole('button', { name: /^done$/i }));
     await unlockDoneScreen(h);
-    expect(screen.getByText('Camp', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Camp ·/ })).toBeInTheDocument();
   });
 
   test('a reading whose tab closed before Done is reported as lost on next open', async () => {

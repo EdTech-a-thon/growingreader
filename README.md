@@ -1,4 +1,4 @@
-# Reading Fluency
+# Growing Reader
 
 A local-first web app a reading interventionist hands to a student on a Chromebook. The student reads a printed passage aloud; the app records, works out the reading rate (passage words ÷ time), and tracks each student's rate over time. Vocabulary is in `CONTEXT.md`; the two load-bearing decisions are in `docs/adr/`; the spec is `.scratch/reading-fluency/spec.md`.
 
@@ -12,26 +12,43 @@ npm run check      # svelte-check
 npm run build      # static site in dist/
 ```
 
+## Google Sheets sync
+
+The cloud button in the top bar, or **Settings → Google Sheets**, creates a spreadsheet with Summary, Students, Readings, and Passages tabs. The browser remains the editor and pushes changes automatically. The sheet includes roster details, passage text, reading statistics, notes, and transcript text; audio recordings never leave the device.
+
+Sign-in and Drive authorization use the broker at `https://auth.teacher.dev`. The broker keeps the refresh token and gives the browser short-lived access tokens; the browser writes directly to the Sheets API with the narrow `drive.file` scope. Set `VITE_AUTH_BROKER_URL` to use another broker.
+
+For a local click-through without Google, run these in separate terminals:
+
+```sh
+npm run mock-broker
+VITE_AUTH_BROKER_URL=http://localhost:8787 VITE_FAKE_GOOGLE=true npm run dev
+```
+
+The local broker opens a fake Google consent screen and the fake Sheets adapter keeps created sheets in memory.
+
 ## Layout
 
 - `src/domain/` — types and derivations (rate, words correct per minute, roster parsing).
 - `src/analysis/` — pure functions: word counting, silence trimming, passage identification, restart-forgiving alignment for completion and timing. Unit-tested with fixtures; every threshold is a guess until tuned on real recordings.
-- `src/adapters/` — the three device seams, each with a real adapter and a fake:
+- `src/adapters/` — the device and network seams, each with a real adapter and a fake:
   - `storage/` IndexedDB (audio stored as raw Float32) / in-memory
   - `microphone/` getUserMedia + AudioWorklet at 16 kHz / scripted fake
   - `transcriber/` Web Worker running whisper-tiny.en (timestamped export, q8, WASM) via transformers.js / canned fake
+  - `sheets/` auth-broker client, Google Sheets transport, report serializer / in-memory fake
 - `src/app/store.svelte.ts` — the App: state, actions, microphone session, analysis queue.
-- `src/ui/` — screens. Student-facing screens (Start, Recording, Done, Progress) have no navigation.
+- `src/ui/` — screens, plus the shared pieces: `Waveform` (review: peaks with the start and end handles the teacher drags over them), `LiveWaveform` (start/recording: the microphone level scrolling by), `PassagePicker` (step one of handing over), `Modal`, `BottomNav`. Student-facing screens (Start, Recording, Done) have no navigation; everything else, including a student's page, is the teacher's.
 - `src/test/harness.ts` — renders the whole app with fakes; the primary test seam.
 
 ## Deploying (not done here)
 
 The build is a static site. Things whoever deploys should know:
 
-- The speech model (~41 MB) is fetched from the Hugging Face Hub on first launch and cached by transformers.js in the Cache API; the ONNX runtime WASM (~23 MB) ships in `dist/`. After that the app makes no network calls. `public/sw.js` caches the app shell for offline use.
+- Add the production site origin to the auth broker's app-origin allowlist before enabling Google Sheets sync.
+- The speech model (~41 MB) is fetched from the Hugging Face Hub on first launch and cached by transformers.js in the Cache API; the ONNX runtime WASM (~23 MB) ships in `dist/`. `public/sw.js` caches the app shell for offline use. The app otherwise makes network calls only when optional Google Sheets sync is connected.
 - Multithreaded WASM needs cross-origin isolation headers (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`). That roughly halves transcription time on a 4-core device and does nothing on a 2-core Celeron. Transcription time on the target Chromebook is unmeasured (estimate 1–3 min per 90 s reading); the UI never waits on it.
 - Managed-Chromebook storage policy (ephemeral mode, per-student profiles) may wipe IndexedDB; that is what the backup export is for and it must be checked on the real device.
 
 ## Manual smoke check (the real model)
 
-The automated suite never runs the real model. On a real device: open the app, watch the model download on the Roster, record a reading, unlock, and confirm the transcript panel on the review screen fills in and the "First to last word" timing appears.
+The automated suite never runs the real model. On a real device: open the app (the model downloads silently; Settings shows its progress, and only a failure is announced on the roster), record a reading, unlock, and confirm the "What the app heard" card on the review screen fills in and the timing line under the waveform switches to "first word to last word".

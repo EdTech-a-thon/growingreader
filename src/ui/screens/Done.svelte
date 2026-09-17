@@ -7,8 +7,11 @@
 </script>
 
 <main class="stage">
-  <h1>Nice work!</h1>
-  <p style="font-size:1.4rem">Hand the device back to your teacher.</p>
+  <div class="stage-top">
+    <div class="empty-icon" style="background:var(--green-soft)">🎉</div>
+    <h1>Nice work!</h1>
+    <p class="lead" style="font-size:1.4rem">Hand the device back to your teacher.</p>
+  </div>
 
   <LongPress ms={app.longPressMs} label="Hold to unlock" onlongpress={() => app.go({ name: 'review', readingId })}>Teacher: hold to unlock</LongPress>
 </main>

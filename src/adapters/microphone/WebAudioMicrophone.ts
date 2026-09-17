@@ -18,7 +18,14 @@ export class WebAudioMicrophone implements Microphone {
       // Some devices cannot open a 16 kHz context; the capture then reports the rate it used.
       context = new AudioContext();
     }
-    await context.audioWorklet.addModule(workletUrl);
+    try {
+      await context.audioWorklet.addModule(workletUrl);
+    } catch (e) {
+      // Chrome's message ("Unable to load a worklet's module") says nothing about which URL failed.
+      void context.close();
+      for (const track of stream.getTracks()) track.stop();
+      throw new Error(`${e instanceof Error ? e.message : String(e)} (${new URL(workletUrl, location.href).href})`);
+    }
     const source = context.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(context, 'recorder');
     let resolveCapture: ((c: Capture) => void) | undefined;

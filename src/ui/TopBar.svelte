@@ -1,28 +1,27 @@
 <script lang="ts">
   import { useApp } from '../app/context';
+  import Lock from '@lucide/svelte/icons/lock';
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+  import Cloud from '@lucide/svelte/icons/cloud';
+  import CloudCheck from '@lucide/svelte/icons/cloud-check';
+  import CloudOff from '@lucide/svelte/icons/cloud-off';
+  import BrandMark from './BrandMark.svelte';
   const app = useApp();
-
-  const items = [
-    { name: 'Roster', screen: { name: 'roster' } as const, matches: ['roster', 'student', 'review'] },
-    { name: 'Passages', screen: { name: 'passages' } as const, matches: ['passages'] },
-    { name: 'Settings', screen: { name: 'settings' } as const, matches: ['settings'] },
-  ];
-
-  function nav(e: Event, screen: (typeof items)[number]['screen']) {
-    e.preventDefault();
-    app.go(screen);
-  }
 </script>
 
-<nav class="topbar" aria-label="Main">
-  {#each items as item (item.name)}
-    <a href="#{item.name.toLowerCase()}" aria-current={item.matches.includes(app.screen.name) ? 'page' : undefined} onclick={(e) => nav(e, item.screen)}>{item.name}</a>
-  {/each}
-  <span class="grow"></span>
-  {#if app.processing.length > 0}
-    <span class="small muted" role="status">Analysing {app.processing.length} {app.processing.length === 1 ? 'reading' : 'readings'}…</span>
-  {/if}
-  {#if app.model.state === 'loading'}
-    <span class="small muted">Speech model {Math.round(app.model.progress * 100)}%</span>
-  {/if}
-</nav>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"><BrandMark size={25} /></span><span>Growing Reader</span></div>
+  <div class="topbar-actions">
+    <div class="topbar-status">
+      {#if app.processing.length > 0}
+        <span role="status"><LoaderCircle size={16} class="spin" aria-hidden="true" style="vertical-align:-3px;margin-right:6px" />Analysing {app.processing.length} {app.processing.length === 1 ? 'reading' : 'readings'}…</span>
+      {:else}
+        <span class="privacy-note"><Lock size={14} aria-hidden="true" />Recordings stay on this device</span>
+      {/if}
+    </div>
+    <button class:warning={app.syncStatus === 'offline' || app.syncStatus === 'reconnect'} class="sync-button" onclick={() => app.openSyncDialog()} aria-label="Google Sheets sync">
+      {#if !app.syncLink}<CloudOff size={18} />{:else if app.syncStatus === 'saved'}<CloudCheck size={18} />{:else if app.syncStatus === 'saving'}<LoaderCircle size={18} class="spin" />{:else}<Cloud size={18} />{/if}
+      <span>{app.syncLabel}</span>
+    </button>
+  </div>
+</header>
