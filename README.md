@@ -16,7 +16,7 @@ npm run build      # static site in dist/
 
 The cloud button in the top bar, or **Settings → Google Sheets**, creates a spreadsheet with Summary, Students, Readings, and Passages tabs. The browser remains the editor and pushes changes automatically. The sheet includes roster details, passage text, reading statistics, notes, and transcript text; audio recordings never leave the device.
 
-Sign-in and Drive authorization use the broker at `https://auth.teacher.dev`. The broker keeps the refresh token and gives the browser short-lived access tokens; the browser writes directly to the Sheets API with the narrow `drive.file` scope. Set `VITE_AUTH_BROKER_URL` to use another broker.
+Sign-in and Drive authorization use the broker at `https://auth.teacher.dev`. The broker keeps the refresh token and gives the browser short-lived access tokens; the browser writes directly to the Sheets API with the narrow `drive.file` scope. Set `VITE_AUTH_BROKER_URL` to use another broker. `VITE_CF_BEACON` is an optional Cloudflare Web Analytics token and should be configured in the production deployment only.
 
 For a local click-through without Google, run these in separate terminals:
 
