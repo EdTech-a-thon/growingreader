@@ -52,3 +52,11 @@ describe('Google Sheets report', () => {
     expect(transport.operations).toEqual(['CREATE fake-sheet-1', 'WRITE fake-sheet-1', 'WRITE fake-sheet-1']);
   });
 });
+
+test('a passage too long for a Sheets cell is truncated rather than failing the whole push', () => {
+  const passage = { id: 'p1', title: 'Long', text: 'x'.repeat(60_000), wordCount: 1, createdAt: 0 };
+  const values = sheetValues({ students: [], passages: [passage], readings: [] });
+  const cell = values.Passages[1][3] as string;
+  expect(cell.length).toBeLessThanOrEqual(50_000);
+  expect(cell).toMatch(/truncated: too long for one cell\]$/);
+});

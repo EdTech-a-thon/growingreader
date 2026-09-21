@@ -8,6 +8,8 @@
   import { encodeWav } from '../wav';
   import { downloadBlob } from '../download';
   import PassageForm from '../PassageForm.svelte';
+  import ConvertFileHelp from '../ConvertFileHelp.svelte';
+  import { readPassageFiles, type ReadFailure, type ReadPassage } from '../read-files';
   import PassagePicker from '../PassagePicker.svelte';
   import Modal from '../Modal.svelte';
   import Waveform from '../Waveform.svelte';
@@ -40,6 +42,26 @@
   let playhead = $state(0);
   let changingPassage = $state(false);
   let pastingPassage = $state(false);
+  let passageFileInput = $state<HTMLInputElement | undefined>(undefined);
+  let importedPassage = $state<ReadPassage | undefined>(undefined);
+  let importFailures = $state<ReadFailure[]>([]);
+
+  /** One file becomes this reading's passage, or explains why it could not. */
+  async function takePassageFile(file: File | undefined) {
+    if (!file) return;
+    const { passages, failures } = await readPassageFiles(app, [file]);
+    importedPassage = passages[0];
+    importFailures = failures;
+    if (importedPassage) {
+      pastingPassage = true;
+      importFailures = [];
+    }
+  }
+
+  function closePassageForm() {
+    pastingPassage = false;
+    importedPassage = undefined;
+  }
   let confirmingDiscard = $state(false);
   let noteText = $state('');
 
@@ -307,19 +329,49 @@
       changingPassage = false;
       pastingPassage = true;
     }}
+    onimport={() => {
+      changingPassage = false;
+      passageFileInput?.click();
+    }}
     onclose={() => (changingPassage = false)}
   />
 {/if}
 
+<!-- The choice of typing or importing happens before the form, as it does on the Passages screen. -->
+<input
+  bind:this={passageFileInput}
+  class="visually-hidden"
+  type="file"
+  accept={app.importAccept}
+  aria-label="Import a passage from a file"
+  onchange={(e) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    void takePassageFile(file);
+  }}
+/>
+
 {#if pastingPassage}
-  <Modal title="Paste a new passage" eyebrow="Passage" wide onclose={() => (pastingPassage = false)}>
+  <Modal title={importedPassage ? 'Check this passage' : 'Type out a passage'} eyebrow="Passage" wide tall onclose={closePassageForm}>
     <PassageForm
+      initialTitle={importedPassage?.title ?? ''}
+      initialText={importedPassage?.text ?? ''}
+      initialSource={importedPassage?.source}
       submitLabel="Save and use for this reading"
-      onsubmit={async (title, text) => {
-        await app.pasteNewPassageFor(readingId, title, text);
-        pastingPassage = false;
+      onsubmit={async (title, text, source) => {
+        await app.pasteNewPassageFor(readingId, title, text, source);
+        closePassageForm();
       }}
-      oncancel={() => (pastingPassage = false)}
+      oncancel={closePassageForm}
     />
   </Modal>
+{/if}
+
+{#if importFailures.length > 0}
+  <ConvertFileHelp
+    failures={importFailures}
+    onfiles={(files) => void takePassageFile(files[0])}
+    onclose={() => (importFailures = [])}
+  />
 {/if}

@@ -2,7 +2,7 @@ import type { Id, Passage, Reading, Settings, Student } from '../../domain/types
 import type { Snapshot, Storage } from './Storage';
 
 const DB_NAME = 'reading-fluency';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORES = ['students', 'passages', 'readings', 'audio', 'settings'] as const;
 type StoreName = (typeof STORES)[number];
 
@@ -35,6 +35,8 @@ export class IndexedDbStorage implements Storage {
         for (const store of STORES) {
           if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
         }
+        // Version 2 briefly kept imported PDFs; the extracted text is the passage now (ADR-0005).
+        if (db.objectStoreNames.contains('passageFiles')) db.deleteObjectStore('passageFiles');
       };
       this.dbPromise = request(req);
     }

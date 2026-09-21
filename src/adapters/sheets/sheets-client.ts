@@ -93,10 +93,23 @@ export function sheetValues(data: SyncData): SheetValues {
       'id', 'student id', 'student', 'recorded', 'passage id', 'passage', 'passage words', 'seconds',
       'words per minute', 'errors', 'words correct per minute', 'completion', 'transcript', 'note', 'analysis',
     ], ...readingRows],
-    Passages: [['id', 'title', 'word count', 'text', 'created'], ...passages.map((passage) => [
-      passage.id, passage.title, passage.wordCount, passage.text, iso(passage.createdAt),
+    Passages: [['id', 'title', 'word count', 'text', 'created', 'from file'], ...passages.map((passage) => [
+      passage.id, passage.title, passage.wordCount, forCell(passage.text), iso(passage.createdAt), passage.source?.fileName ?? '',
     ])],
   };
+}
+
+/**
+ * A Sheets cell holds 50,000 characters. Passages are capped well below that when they are
+ * added, so this only catches text that predates the cap; going over would fail the whole
+ * push with a generic error that retries forever behind an "Offline" label.
+ */
+const MAX_CELL_CHARS = 50_000;
+const TRUNCATION_NOTE = '… [truncated: too long for one cell]';
+
+function forCell(text: string): string {
+  if (text.length <= MAX_CELL_CHARS) return text;
+  return text.slice(0, MAX_CELL_CHARS - TRUNCATION_NOTE.length) + TRUNCATION_NOTE;
 }
 
 export function createSheetsClient(transport: SheetTransport): SheetsClient {

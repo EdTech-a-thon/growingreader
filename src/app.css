@@ -677,6 +677,10 @@ textarea:focus {
   font-weight: 700;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -686,6 +690,7 @@ textarea:focus {
   display: grid;
   place-items: center;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .modal {
@@ -703,6 +708,50 @@ textarea:focus {
 
 .modal.wide {
   width: min(840px, 100%);
+}
+
+/*
+ * A passage is read, not glanced at: the editor and the text view take the whole
+ * viewport so a teacher can compare what the app extracted against the paper copy
+ * without scrolling a six-line box.
+ */
+.modal.tall {
+  height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal.tall > form,
+.modal.tall > .passage-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal.tall .field:has(textarea) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal.tall textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
+.modal.tall .passage-text {
+  flex: 1;
+  max-height: none;
+}
+
+/* The banners and the count line keep their size; only the text grows. */
+.modal.tall > form > .banner,
+.modal.tall > form > .modal-actions {
+  flex: none;
 }
 
 @keyframes menu-in {
@@ -2395,4 +2444,290 @@ td.num {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* ---- importing a passage from a file ----------------------------------- */
+
+.import-chip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.import-chip .link-button {
+  display: inline-flex;
+  margin-left: 0;
+  text-decoration: none;
+}
+
+.passage-text {
+  max-height: min(60vh, 560px);
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+/* ---- the page as a drop target ---------------------------------------- */
+
+.drop-page {
+  position: relative;
+  min-height: 100%;
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(34, 43, 64, 0.35);
+}
+
+.drop-overlay-card {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 32px 40px;
+  border: 2px dashed var(--blue);
+  border-radius: 18px;
+  color: var(--blue-dark);
+  background: var(--card, #fff);
+  text-align: center;
+}
+
+.drop-overlay-card > strong {
+  font-size: 1.15rem;
+}
+
+.empty-state.drop-target {
+  border: 1px dashed var(--line);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.empty-state.drop-target.dragging {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Add passage menu -------------------------------------------------- */
+
+.menu-wrap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 232px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--card-shadow);
+  display: grid;
+  gap: 2px;
+}
+
+.menu > button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu > button:hover,
+.menu > button:focus-visible {
+  background: var(--blue-soft);
+}
+
+/* ---- the batch import list --------------------------------------------- */
+
+.import-rows {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.import-row.excluded {
+  opacity: 0.5;
+}
+
+.import-row.failed {
+  border-color: #e7c9c9;
+  background: #fdf5f5;
+}
+
+.import-row > input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+}
+
+.import-row-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--blue-dark);
+  background: var(--blue-soft);
+}
+
+.import-row .grow {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.import-row-title {
+  width: 100%;
+  padding: 6px 8px;
+  font-weight: 700;
+}
+
+.import-row-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.import-row-excerpt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- converting a file we cannot read ---------------------------------- */
+
+.convert-steps {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.convert-steps > li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.convert-steps .grow {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.convert-steps small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.convert-step-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--blue-dark);
+  background: var(--blue-soft);
+  font-weight: 750;
+  font-size: 0.9rem;
+}
+
+.convert-step-mark[data-done] {
+  color: #fff;
+  background: var(--blue);
+}
+
+.assistant-links {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.assistant-links .button {
+  gap: 6px;
+}
+
+.convert-help {
+  border-radius: 12px;
+  transition: outline-color 0.15s ease;
+  outline: 2px dashed transparent;
+  outline-offset: 6px;
+}
+
+.convert-help.dropping {
+  outline-color: var(--blue);
+}
+
+.convert-drop {
+  border-style: dashed;
+}
+
+.convert-drop.dropping {
+  border-color: var(--blue);
+  border-style: solid;
+  background: var(--blue-soft);
+}
+
+.failure-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.failure-list > li + li {
+  margin-top: 4px;
 }

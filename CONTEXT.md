@@ -13,8 +13,12 @@ The adult who owns the device and roster, hands it to students, and reviews read
 _Avoid_: Interventionist, admin, user
 
 **Passage**:
-A fixed printed text a student reads aloud. Has a known word count.
+A fixed printed text a student reads aloud. Has a known word count. Pasted in, or read out of a file the teacher chose.
 _Avoid_: Text, story, prompt, test
+
+**Imported passage**:
+A passage whose text was read out of a file rather than typed or pasted. The extracted text is the passage; the file itself is not kept, only its name. The word count is an estimate until the teacher has checked it against the paper copy, and that is how it is labelled everywhere it is shown.
+_Avoid_: Uploaded passage, attachment, parsed passage, PDF passage
 
 **Reading**:
 One recording of one student reading one passage aloud.
@@ -27,6 +31,18 @@ _Avoid_: Class, group, student list
 **Transcript**:
 The app's rough text of what it heard during a reading. Used to identify the passage, confirm completion, tighten start/stop, and give an estimated rate on review; never a score.
 _Avoid_: Estimate, recognition result, ASR output
+
+**Estimated word count**:
+The word count of an imported passage before the teacher has checked it against the paper copy. Headings, page numbers and worksheet instructions come across as words, and the count divides into the time to give the rate, so it is shown as an estimate wherever it appears.
+_Avoid_: Approximate count, parsed count
+
+**Unreadable file**:
+A file the app cannot turn into a passage: a scanned PDF with no text layer, or a format it does not open. Not an error to dismiss — the teacher is given instructions to have an assistant convert the file, which she then drops back onto those instructions.
+_Avoid_: Failed import, bad file, OCR failure
+
+**Title line**:
+The `# Passage title` first line of a converted file. It names the passage, so the file's own name does not matter, and it is not part of the passage or its word count.
+_Avoid_: Header, markdown heading, filename title
 
 **Rate**:
 Words per minute for a complete reading: the passage's word count over the time spent reading. Only exists once the passage is known and the reading is complete.

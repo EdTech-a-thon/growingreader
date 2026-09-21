@@ -19,7 +19,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.ok) {
+        // Only good responses are kept. Without this a 404 page — what a missing SPA
+        // rewrite returns for a real route — would be cached and served forever after.
+        if (response.ok && response.type !== 'opaque') {
           const copy = response.clone();
           caches.open(CACHE).then((c) => c.put(event.request, copy));
         }

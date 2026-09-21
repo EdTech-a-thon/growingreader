@@ -4,30 +4,38 @@ import App from '../App.svelte';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { FakeMicrophone } from '../adapters/microphone/FakeMicrophone';
 import { FakeTranscriber } from '../adapters/transcriber/FakeTranscriber';
+import { FakeDocumentImporter } from '../adapters/documents/FakeDocumentImporter';
 import type { AppDeps } from '../app/store.svelte';
 import { SAMPLE_RATE } from '../domain/types';
 import { markWelcomed, resetWelcomeForTest } from '../app/welcomed';
+import { resetScrollLockForTest } from '../ui/scroll-lock';
 
 export interface Harness {
   storage: MemoryStorage;
   microphone: FakeMicrophone;
   transcriber: FakeTranscriber;
+  documents: FakeDocumentImporter;
   user: ReturnType<typeof userEvent.setup>;
   clock: { now: number };
 }
 
 /** Render the whole app the way the teacher sees it, with every device boundary faked. */
-export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now?: number; firstVisit?: boolean } = {}): Promise<Harness> {
+export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now?: number; firstVisit?: boolean; path?: string } = {}): Promise<Harness> {
   const storage = (overrides.storage as MemoryStorage) ?? new MemoryStorage();
   const microphone = (overrides.microphone as FakeMicrophone) ?? new FakeMicrophone();
   const transcriber = (overrides.transcriber as FakeTranscriber) ?? new FakeTranscriber();
+  const documents = (overrides.documents as FakeDocumentImporter) ?? new FakeDocumentImporter();
   const clock = { now: overrides.now ?? Date.UTC(2026, 8, 15, 15, 0, 0) };
+  // jsdom keeps one location per file, so every render starts from a known address.
+  window.history.replaceState({}, '', overrides.path ?? '/');
+  resetScrollLockForTest();
   if (overrides.firstVisit) resetWelcomeForTest();
   else markWelcomed();
   const deps: AppDeps = {
     storage,
     microphone,
     transcriber,
+    documents,
     sheets: overrides.sheets,
     broker: overrides.broker,
     clearSheetAuthorization: overrides.clearSheetAuthorization,
@@ -37,8 +45,8 @@ export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now
   };
   render(App, { props: { deps } });
   if (overrides.firstVisit) await screen.findByRole('heading', { name: /see every reader grow/i });
-  else await screen.findByRole('heading', { name: /roster/i });
-  return { storage, microphone, transcriber, user: userEvent.setup(), clock };
+  else if (!overrides.path || overrides.path === '/') await screen.findByRole('heading', { name: /roster/i });
+  return { storage, microphone, transcriber, documents, user: userEvent.setup(), clock };
 }
 
 /** A capture of `seconds` of quiet-then-speech-then-quiet so silence trimming has something to find. */
@@ -58,14 +66,54 @@ export async function pasteRoster(h: Harness, names: string) {
   await h.user.click(screen.getByRole('button', { name: /add students/i }));
 }
 
+/** Open the type-it-out form, from either the empty state or the Add passage menu. */
+export async function openPassageForm(h: Harness) {
+  const menuButton = screen.queryByRole('button', { name: /^add passage$/i });
+  if (menuButton) {
+    await h.user.click(menuButton);
+    await h.user.click(screen.getByRole('menuitem', { name: /type it out/i }));
+  } else {
+    await h.user.click(screen.getByRole('button', { name: /type it out/i }));
+  }
+}
+
 /** Paste a passage on the Passages screen. */
 export async function pastePassage(h: Harness, title: string, text: string) {
-  await h.user.click(screen.getByRole('button', { name: /^add passage$/i }));
+  await openPassageForm(h);
   await h.user.type(screen.getByLabelText(/^title$/i), title);
   const textarea = screen.getByLabelText(/^text$/i) as HTMLTextAreaElement;
   await h.user.click(textarea);
   await h.user.paste(text);
   await h.user.click(screen.getByRole('button', { name: /save passage/i }));
+}
+
+const fileOf = (name: string, contents: string) =>
+  new File([contents], name, { type: name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain' });
+
+/**
+ * Hand files to the Passages screen the way a drop or the file picker does. The fake
+ * importer decides what each file "contains"; the real PDF path is covered in pdf.test.ts.
+ */
+export async function importFiles(h: Harness, files: { name: string; text: string }[]) {
+  for (const f of files) if (!h.documents.contents.has(f.name)) h.documents.willRead(f.name, f.text);
+  await h.user.upload(
+    screen.getByLabelText(/import passages from files/i),
+    files.map((f) => fileOf(f.name, f.text)),
+  );
+}
+
+/** Import one file, which opens the full form, and save it. */
+export async function importPassage(h: Harness, fileName: string, text: string, opts: { title?: string; save?: boolean } = {}) {
+  await importFiles(h, [{ name: fileName, text }]);
+  await screen.findByLabelText(/^text$/i);
+  if (opts.title) await h.user.type(screen.getByLabelText(/^title$/i), opts.title);
+  if (opts.save !== false) await h.user.click(screen.getByRole('button', { name: /save passage/i }));
+}
+
+/** Import a passage from the review screen's picker, which has its own single-file input. */
+export async function importPassageForReading(h: Harness, fileName: string, text: string) {
+  h.documents.willRead(fileName, text);
+  await h.user.upload(screen.getByLabelText(/import a passage from a file/i), fileOf(fileName, text));
 }
 
 export async function goTo(h: Harness, nav: 'Roster' | 'Passages' | 'Settings') {

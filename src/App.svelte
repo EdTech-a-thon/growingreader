@@ -18,6 +18,7 @@
   import PrivacyPage from './ui/PrivacyPage.svelte';
   import Help from './ui/Help.svelte';
   import { consumeArrivalError, describeArrivalError } from './adapters/sheets/broker';
+  import { isStaticPage, pathForScreen, screenForPath } from './app/routes';
   import { hasBeenWelcomed, markWelcomed } from './app/welcomed';
 
   let { deps }: { deps: AppDeps } = $props();
@@ -35,10 +36,27 @@
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
+  /** Until the opening address has been read, writing the URL would clobber a deep link. */
+  let routeReady = $state(false);
+
+  // The teacher's screens live at real URLs, so a refresh stays where she was. The
+  // student-facing screens have no path of their own (ADR-0006) and leave the URL alone.
+  $effect(() => {
+    if (!routeReady || isStaticPage(path)) return;
+    const wanted = pathForScreen(app.screen);
+    if (!wanted || wanted === window.location.pathname) return;
+    window.history.pushState({}, '', wanted);
+    path = wanted;
+  });
+
   onMount(() => {
     const arrivalError = consumeArrivalError();
     const online = () => app.retrySync();
-    const popstate = () => (path = window.location.pathname);
+    const popstate = () => {
+      path = window.location.pathname;
+      const screen = screenForPath(path);
+      if (screen) app.go(screen);
+    };
     const click = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const anchor = target?.closest('a[data-app-link]') as HTMLAnchorElement | null;
@@ -48,10 +66,22 @@
       event.preventDefault();
       navigate(url.pathname);
     };
+    // A file dropped anywhere the app does not handle would otherwise navigate the tab
+    // to that file, losing whatever the teacher was in the middle of.
+    const dragover = (e: DragEvent) => e.preventDefault();
+    const strayDrop = (e: DragEvent) => {
+      if (!e.defaultPrevented) e.preventDefault();
+    };
+    window.addEventListener('dragover', dragover);
+    window.addEventListener('drop', strayDrop);
     window.addEventListener('online', online);
     window.addEventListener('popstate', popstate);
     document.addEventListener('click', click);
     void app.init().then(async () => {
+      // A deep link decides the opening screen; an address we do not know falls back to the roster.
+      const opening = screenForPath(window.location.pathname);
+      if (opening) app.go(opening);
+      routeReady = true;
       const hasLocalWork = app.students.length > 0 || app.passages.length > 0 || app.readings.length > 0;
       showWelcome = !arrivalError && !hasLocalWork && !hasBeenWelcomed();
       if (hasLocalWork) markWelcomed();
@@ -63,6 +93,8 @@
       }
     });
     return () => {
+      window.removeEventListener('dragover', dragover);
+      window.removeEventListener('drop', strayDrop);
       window.removeEventListener('online', online);
       window.removeEventListener('popstate', popstate);
       document.removeEventListener('click', click);

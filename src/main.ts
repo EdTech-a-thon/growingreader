@@ -4,6 +4,7 @@ import App from './App.svelte';
 import { IndexedDbStorage } from './adapters/storage/IndexedDbStorage';
 import { WebAudioMicrophone } from './adapters/microphone/WebAudioMicrophone';
 import { WorkerTranscriber } from './adapters/transcriber/WorkerTranscriber';
+import { FileDocumentImporter } from './adapters/documents/FileDocumentImporter';
 import { authBroker } from './adapters/sheets/broker';
 import { clearAuthorization, createGoogleSheetTransport } from './adapters/sheets/google';
 import { createSheetsClient } from './adapters/sheets/sheets-client';
@@ -26,6 +27,7 @@ mount(App, {
       storage: new IndexedDbStorage(),
       microphone: new WebAudioMicrophone(),
       transcriber: new WorkerTranscriber(),
+      documents: new FileDocumentImporter(),
       broker: authBroker,
       sheets: createSheetsClient(createGoogleSheetTransport()),
       clearSheetAuthorization: clearAuthorization,

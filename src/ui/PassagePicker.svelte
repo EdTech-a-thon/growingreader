@@ -5,6 +5,7 @@
   import Check from '@lucide/svelte/icons/check';
   import SkipForward from '@lucide/svelte/icons/skip-forward';
   import ClipboardPaste from '@lucide/svelte/icons/clipboard-paste';
+  import FileUp from '@lucide/svelte/icons/file-up';
 
   let {
     title,
@@ -15,6 +16,7 @@
     skipHint = 'Choose it on review instead',
     onpick,
     onpaste,
+    onimport,
     onclose,
   }: {
     title: string;
@@ -25,8 +27,10 @@
     skipLabel?: string;
     skipHint?: string;
     onpick: (passageId: string | undefined) => void;
-    /** When given, a card offers to paste a passage that is not stored yet. */
+    /** When given, a card offers to type in a passage that is not stored yet. */
     onpaste?: () => void;
+    /** When given, a card offers to read one out of a file instead. */
+    onimport?: () => void;
     onclose: () => void;
   } = $props();
   const app = useApp();
@@ -48,8 +52,17 @@
       <button class="passage-pick skip" onclick={onpaste}>
         <span class="passage-pick-mark"><ClipboardPaste size={20} /></span>
         <span class="passage-pick-text">
-          <span class="passage-pick-title">Paste a new passage</span>
+          <span class="passage-pick-title">Type out a new passage</span>
           <small>Stored for next time too</small>
+        </span>
+      </button>
+    {/if}
+    {#if onimport}
+      <button class="passage-pick skip" onclick={onimport}>
+        <span class="passage-pick-mark"><FileUp size={20} /></span>
+        <span class="passage-pick-text">
+          <span class="passage-pick-title">Import a passage from a file</span>
+          <small>PDF or plain text; stored for next time too</small>
         </span>
       </button>
     {/if}

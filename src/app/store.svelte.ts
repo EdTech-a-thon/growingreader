@@ -1,7 +1,8 @@
 import type { Storage, Snapshot } from '../adapters/storage/Storage';
 import type { Microphone, MicrophoneHandle } from '../adapters/microphone/Microphone';
 import type { Transcriber } from '../adapters/transcriber/Transcriber';
-import { isAnalysing, isDiscarded, newId, type Bounds, type CompletionState, type Id, type Passage, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student } from '../domain/types';
+import type { DocumentImporter, ImportedDocument } from '../adapters/documents/DocumentImporter';
+import { isAnalysing, isDiscarded, newId, type Bounds, type CompletionState, type Id, type Passage, type PassageSource, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student } from '../domain/types';
 import type { BrokerClient, DriveConnection } from '../adapters/sheets/broker';
 import { BrokerError } from '../adapters/sheets/broker';
 import type { SheetsClient, SyncData } from '../adapters/sheets/sheets-client';
@@ -13,6 +14,7 @@ export interface AppDeps {
   storage: Storage;
   microphone: Microphone;
   transcriber: Transcriber;
+  documents: DocumentImporter;
   now?: () => number;
   /** How long the teacher holds to unlock the Done screen. */
   longPressMs?: number;
@@ -228,18 +230,44 @@ export class App {
     return this.passages.filter((p) => p.id !== excludeId && passageSimilarity(p.text, text) >= NEAR_DUPLICATE_THRESHOLD);
   }
 
-  async addPassage(title: string, text: string): Promise<Passage> {
-    const passage: Passage = { id: newId(), title: title.trim(), text, wordCount: countWords(text), createdAt: this.now() };
-    await this.deps.storage.putPassage(plain(passage));
-    this.passages = [...this.passages, passage];
-    this.dataChanged();
+  /** Read a passage out of a file the teacher chose. Throws DocumentImportError with a message for her. */
+  importDocument(file: File): Promise<ImportedDocument> {
+    return this.deps.documents.extract(file);
+  }
+
+  /** File types the file input offers. */
+  get importAccept() {
+    return this.deps.documents.accept;
+  }
+
+  async addPassage(title: string, text: string, source?: PassageSource): Promise<Passage> {
+    const [passage] = await this.addPassages([{ title, text, source }]);
     return passage;
   }
 
-  async updatePassage(id: Id, title: string, text: string) {
+  /**
+   * Save a batch as one change, so a dropped folder of files is a single sync push
+   * rather than one full-workbook rewrite per file.
+   */
+  async addPassages(batch: { title: string; text: string; source?: PassageSource }[]): Promise<Passage[]> {
+    const created = batch.map(({ title, text, source }) => ({
+      id: newId(),
+      title: title.trim(),
+      text,
+      wordCount: countWords(text),
+      createdAt: this.now(),
+      ...(source ? { source } : {}),
+    }));
+    for (const passage of created) await this.deps.storage.putPassage(plain(passage));
+    this.passages = [...this.passages, ...created];
+    this.dataChanged();
+    return created;
+  }
+
+  async updatePassage(id: Id, title: string, text: string, source?: PassageSource) {
     const existing = this.passage(id);
     if (!existing) return;
-    const passage: Passage = { ...existing, title: title.trim(), text, wordCount: countWords(text) };
+    const passage: Passage = { ...existing, title: title.trim(), text, wordCount: countWords(text), ...(source ? { source } : {}) };
     await this.deps.storage.putPassage(plain(passage));
     this.passages = this.passages.map((p) => (p.id === id ? passage : p));
     this.dataChanged();
@@ -365,8 +393,8 @@ export class App {
     await this.realign(readingId);
   }
 
-  async pasteNewPassageFor(readingId: Id, title: string, text: string) {
-    const passage = await this.addPassage(title, text);
+  async pasteNewPassageFor(readingId: Id, title: string, text: string, source?: PassageSource) {
+    const passage = await this.addPassage(title, text, source);
     await this.setPassage(readingId, passage.id);
     return passage;
   }

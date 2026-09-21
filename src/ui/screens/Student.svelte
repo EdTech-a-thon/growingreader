@@ -8,6 +8,7 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import Mic from '@lucide/svelte/icons/mic';
   import PassagePicker from '../PassagePicker.svelte';
+  import LostReadingBanner from '../LostReadingBanner.svelte';
   import Archive from '@lucide/svelte/icons/archive';
 
   let { studentId }: { studentId: string } = $props();
@@ -32,6 +33,7 @@
     <div class="back-row">
       <button class="button secondary" onclick={() => app.go({ name: 'roster' })}><ArrowLeft size={18} aria-hidden="true" />Back to roster</button>
     </div>
+    <LostReadingBanner {studentId} />
     <div class="page-heading">
       <div class="student-hero">
         <span class="initials" aria-hidden="true">{initials(student)}</span>

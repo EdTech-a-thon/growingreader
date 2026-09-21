@@ -14,12 +14,25 @@ export interface Student {
 export interface Passage {
   id: Id;
   title: string;
-  /** Kept verbatim as pasted. */
+  /** Kept verbatim as pasted, or as read out of an imported file and corrected by the teacher. */
   text: string;
   /** Excludes the title; hyphenated tokens count once. */
   wordCount: number;
   createdAt: number;
+  /** Set when the text was read out of a file rather than pasted. */
+  source?: PassageSource;
 }
+
+/**
+ * Where an imported passage's text came from. The file itself is not kept: the extracted
+ * text is the passage (ADR-0005), and the word count it produced is an estimate.
+ */
+export interface PassageSource {
+  kind: 'pdf' | 'text';
+  fileName: string;
+  importedAt: number;
+}
+
 
 /** Seconds from the start of the recording. */
 export interface Bounds {
@@ -126,6 +139,14 @@ export function isAnalysing(reading: Reading): boolean {
 }
 
 export const SAMPLE_RATE = 16000;
+
+/**
+ * A passage is a page or two. The ceiling exists because a passage's text travels to the
+ * Google Sheet in a single cell, and a cell holds 50,000 characters — past that, sync fails
+ * with a generic error and retries forever behind an "Offline" label. 5,000 words is roughly
+ * ten times the longest plausible passage and well under the cell's limit.
+ */
+export const MAX_PASSAGE_WORDS = 5000;
 
 export function newId(): Id {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();

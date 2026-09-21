@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/svelte';
-import { renderApp, pasteRoster, pastePassage, goTo, recordReading } from '../test/harness';
+import { renderApp, pasteRoster, pastePassage, goTo, recordReading, importPassageForReading } from '../test/harness';
 import { FakeTranscriber } from '../adapters/transcriber/FakeTranscriber';
 import { CAMP_CLEAN, CAMP_STOPS_EARLY, CAMP_TEXT, CAMP_TEXT_VARIANT, SHIP_TEXT } from '../test/fixtures/passages';
 import { countWords } from '../analysis';
@@ -124,7 +124,7 @@ describe('Reviewing a reading', () => {
     await pasteRoster(h, 'Ada Lovelace');
     await recordReading(h, 'Ada Lovelace');
     await h.user.click(passageSelect());
-    await h.user.click(screen.getByRole('button', { name: /paste a new passage/i }));
+    await h.user.click(screen.getByRole('button', { name: /type out a new passage/i }));
     await h.user.type(screen.getByLabelText(/^title$/i), 'Camp');
     await h.user.click(screen.getByLabelText(/^text$/i));
     await h.user.paste(CAMP_TEXT);
@@ -297,5 +297,19 @@ describe('Reviewing a reading', () => {
     await h.user.click(within(screen.getByRole('group', { name: /choose passage/i })).getByRole('button', { name: /^Camp/ }));
     // Silence-trimmed bounds (58 s of tone) are the most refined available.
     expect(rateSection()).toHaveTextContent(new RegExp(`${Math.round((CAMP_WORDS / 58) * 60)} words per minute`));
+  });
+
+  test('the teacher imports a passage from a file on review and it is assigned to this reading', async () => {
+    const h = await renderApp();
+    await pasteRoster(h, 'Ada Lovelace');
+    await recordReading(h, 'Ada Lovelace');
+    await h.user.click(passageSelect());
+    await h.user.click(screen.getByRole('button', { name: /import a passage from a file/i }));
+    await importPassageForReading(h, 'Camp.pdf', CAMP_TEXT);
+    await screen.findByLabelText(/^text$/i);
+    await h.user.click(screen.getByRole('button', { name: /save and use for this reading/i }));
+    expect(passageSelect()).toHaveTextContent(/^Camp ·/);
+    const [passage] = await h.storage.listPassages();
+    expect(passage.source).toMatchObject({ fileName: 'Camp.pdf' });
   });
 });
