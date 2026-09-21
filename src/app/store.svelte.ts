@@ -16,6 +16,8 @@ export interface AppDeps {
   now?: () => number;
   /** How long the teacher holds to unlock the Done screen. */
   longPressMs?: number;
+  /** How long a silent open microphone waits before the Start screen offers help. */
+  micHintMs?: number;
   /** Optional in tests; production supplies the Google Sheets and auth adapters. */
   sheets?: SheetsClient;
   broker?: BrokerClient;
@@ -34,6 +36,13 @@ export type Screen =
 
 export type ModelStatus = { state: 'loading'; progress: number } | { state: 'ready' } | { state: 'failed'; message: string };
 export type SyncStatus = 'not-synced' | 'saved' | 'saving' | 'offline' | 'reconnect';
+
+/**
+ * Why the microphone is not giving us a voice, in the teacher's terms. `quiet` is the
+ * common one: permission was granted, but the microphone Chrome picked hears nothing,
+ * so Start never turns green.
+ */
+export type MicTrouble = 'quiet' | 'blocked' | 'notfound' | 'busy' | 'other';
 
 /** Level the meter must see before Start is offered; a guess until tried on a Chromebook. */
 export const START_LEVEL_THRESHOLD = 0.05;
@@ -58,6 +67,7 @@ export class App {
   micOpen = $state(false);
   micHeardSound = $state(false);
   micError = $state<string | undefined>(undefined);
+  micTrouble = $state<MicTrouble | undefined>(undefined);
   storageUsage = $state<StorageUsage | undefined>(undefined);
   syncDialogOpen = $state(false);
   syncStatus = $state<SyncStatus>('not-synced');
@@ -65,8 +75,10 @@ export class App {
   driveConnection = $state<DriveConnection | null>(null);
 
   readonly longPressMs: number;
+  readonly micHintMs: number;
   private readonly now: () => number;
   private mic: MicrophoneHandle | undefined;
+  private micHintTimer: ReturnType<typeof setTimeout> | undefined;
   private modelReady: Promise<boolean> = Promise.resolve(false);
   private queue = $state<Id[]>([]);
   private draining = false;
@@ -79,6 +91,7 @@ export class App {
   constructor(private readonly deps: AppDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.longPressMs = deps.longPressMs ?? 1500;
+    this.micHintMs = deps.micHintMs ?? 6_000;
   }
 
   // ---- lifecycle -------------------------------------------------------
@@ -250,18 +263,44 @@ export class App {
     this.micLevel = 0;
     this.micHeardSound = false;
     this.micError = undefined;
+    this.micTrouble = undefined;
     try {
       this.mic = await this.deps.microphone.open((level) => {
         this.micLevel = level;
-        if (level >= START_LEVEL_THRESHOLD) this.micHeardSound = true;
+        if (level >= START_LEVEL_THRESHOLD) this.heardSound();
       });
       this.micOpen = true;
+      // Permission alone is no promise of sound: Chrome may have picked a microphone that
+      // hears nothing. Say so on screen rather than leaving Start grey with no explanation.
+      this.micHintTimer = setTimeout(() => {
+        this.micHintTimer = undefined;
+        if (this.micOpen && !this.micHeardSound) this.micTrouble = 'quiet';
+      }, this.micHintMs);
     } catch (e) {
-      this.micError = e instanceof Error ? e.message : 'Microphone unavailable';
+      this.micError = micMessage(e);
+      this.micTrouble = micTroubleFrom(e);
     }
   }
 
+  private heardSound() {
+    this.micHeardSound = true;
+    if (this.micTrouble === 'quiet') this.micTrouble = undefined;
+    this.clearMicHint();
+  }
+
+  /** The teacher closed the help: say no more unless the microphone goes quiet again. */
+  dismissMicTrouble() {
+    this.micTrouble = undefined;
+    this.clearMicHint();
+  }
+
+  private clearMicHint() {
+    clearTimeout(this.micHintTimer);
+    this.micHintTimer = undefined;
+  }
+
   closeMicrophone() {
+    this.clearMicHint();
     this.mic?.close();
     this.mic = undefined;
     this.micOpen = false;
@@ -656,6 +695,40 @@ export class App {
       this.retryTimer = undefined;
       void this.syncNow();
     }, delay);
+  }
+}
+
+/** getUserMedia rejects with a DOMException, so read `name` and `message` by shape rather than by class. */
+function errorField(e: unknown, field: 'name' | 'message'): string {
+  const value = (e as Record<string, unknown> | null | undefined)?.[field];
+  return typeof value === 'string' ? value : '';
+}
+
+function micMessage(e: unknown): string {
+  return errorField(e, 'message') || errorField(e, 'name') || 'Microphone unavailable';
+}
+
+/**
+ * getUserMedia's DOMException names, turned into the one thing the teacher can act on.
+ * An unfamiliar name (an older browser, or our own worklet failure) falls through to
+ * `other`, which offers the same Chrome permission steps as a block.
+ */
+function micTroubleFrom(e: unknown): MicTrouble {
+  switch (errorField(e, 'name')) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+    case 'PermissionDeniedError':
+      return 'blocked';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+    case 'DevicesNotFoundError':
+      return 'notfound';
+    case 'NotReadableError':
+    case 'TrackStartError':
+    case 'AbortError':
+      return 'busy';
+    default:
+      return 'other';
   }
 }
 

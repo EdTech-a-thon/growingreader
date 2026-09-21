@@ -38,6 +38,69 @@ describe('Handing the device to a student', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Permission denied/);
   });
 
+  test('a microphone that hears nothing says where Chrome keeps the microphone settings, and gets out of the way once it hears a voice', async () => {
+    const h = await renderApp({ micHintMs: 20 });
+    await pasteRoster(h, 'Ada Lovelace');
+    await openStart(h, 'Ada Lovelace');
+    const help = await screen.findByRole('status', { name: /not hearing anything/i });
+    expect(help).toHaveTextContent(/sliders icon at the left of the address bar/i);
+    expect(help).toHaveTextContent(/pick a different one/i);
+    expect(help).toHaveTextContent(/reset permissions/i);
+    // The arrow that points past the page at Chrome's own address bar.
+    expect(screen.getByText(/microphone settings live up here/i)).toBeInTheDocument();
+
+    h.microphone.emitLevel(0.4);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^start$/i })).toBeEnabled());
+    expect(screen.queryByRole('status', { name: /not hearing anything/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/microphone settings live up here/i)).not.toBeInTheDocument();
+  });
+
+  test('the teacher can open the microphone help straight away, and hide it again', async () => {
+    const h = await renderApp();
+    await pasteRoster(h, 'Ada Lovelace');
+    await openStart(h, 'Ada Lovelace');
+    await screen.findByText(/waiting for sound/i);
+    await h.user.click(screen.getByRole('button', { name: /start button stuck grey/i }));
+    expect(await screen.findByRole('status', { name: /not hearing anything/i })).toBeInTheDocument();
+
+    await h.user.click(screen.getByRole('button', { name: /hide microphone help/i }));
+    expect(screen.queryByRole('status', { name: /not hearing anything/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start button stuck grey/i })).toBeInTheDocument();
+  });
+
+  test('a blocked microphone tells the teacher to allow it from the address bar, and Try again reopens it', async () => {
+    const microphone = new FakeMicrophone();
+    microphone.failWith = new DOMException('Permission denied', 'NotAllowedError');
+    const h = await renderApp({ microphone });
+    await pasteRoster(h, 'Ada Lovelace');
+    await openStart(h, 'Ada Lovelace');
+    const alert = await screen.findByRole('alert', { name: /chrome is blocking the microphone/i });
+    expect(alert).toHaveTextContent(/sliders icon at the left of the address bar/i);
+    expect(alert).toHaveTextContent(/set Microphone to Allow/i);
+    expect(alert).toHaveTextContent(/Permission denied/);
+    expect(screen.getByText(/microphone settings live up here/i)).toBeInTheDocument();
+
+    microphone.failWith = undefined;
+    await h.user.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByRole('meter', { name: /microphone level/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('a missing microphone and a microphone another app holds each get their own advice, with no arrow at Chrome', async () => {
+    const microphone = new FakeMicrophone();
+    microphone.failWith = new DOMException('Requested device not found', 'NotFoundError');
+    const h = await renderApp({ microphone });
+    await pasteRoster(h, 'Ada Lovelace');
+    await openStart(h, 'Ada Lovelace');
+    expect(await screen.findByRole('alert', { name: /no microphone found/i })).toHaveTextContent(/plug it back in/i);
+    // Nothing to point at in the address bar: permission is not the problem here.
+    expect(screen.queryByText(/microphone settings live up here/i)).not.toBeInTheDocument();
+
+    microphone.failWith = new DOMException('Could not start audio source', 'NotReadableError');
+    await h.user.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByRole('alert', { name: /another app has the microphone/i })).toHaveTextContent(/Meet, Zoom, Teams/);
+  });
+
   test('the recording screen shows an indicator and Done, with no timer', async () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');

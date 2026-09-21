@@ -33,6 +33,7 @@ export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now
     clearSheetAuthorization: overrides.clearSheetAuthorization,
     now: () => clock.now,
     longPressMs: overrides.longPressMs ?? 30,
+    micHintMs: overrides.micHintMs ?? 30_000,
   };
   render(App, { props: { deps } });
   if (overrides.firstVisit) await screen.findByRole('heading', { name: /see every reader grow/i });

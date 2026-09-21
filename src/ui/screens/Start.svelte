@@ -3,6 +3,7 @@
   import { useApp } from '../../app/context';
   import { displayName } from '../../domain/roster';
   import LiveWaveform from '../LiveWaveform.svelte';
+  import MicHelp from '../MicHelp.svelte';
   import PassagePicker from '../PassagePicker.svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import Play from '@lucide/svelte/icons/play';
@@ -12,10 +13,24 @@
   const student = $derived(app.student(studentId));
   const passage = $derived(app.passage(passageId));
   let choosingPassage = $state(false);
+  /** The teacher asked for the microphone help before the app offered it. */
+  let helpAsked = $state(false);
+  // Once a voice reaches the microphone the help has served its purpose, so it gets out of the way.
+  const showHelp = $derived(!app.canStart && (app.micTrouble !== undefined || helpAsked));
 
   function choose(id: string | undefined) {
     choosingPassage = false;
     app.go({ name: 'start', studentId, passageId: id });
+  }
+
+  function retry() {
+    helpAsked = false;
+    void app.openMicrophone();
+  }
+
+  function hideHelp() {
+    helpAsked = false;
+    app.dismissMicTrouble();
   }
 
   // The store owns the microphone session: go() releases it when leaving this screen.
@@ -39,11 +54,20 @@
   </div>
 
   {#if app.micError}
-    <p class="banner error-banner" role="alert" style="width:auto"><span class="banner-mark">!</span>Microphone not available: {app.micError}</p>
-    <button class="button secondary" onclick={() => app.openMicrophone()}>Try again</button>
+    <MicHelp trouble={app.micTrouble ?? 'other'} detail={app.micError} onretry={retry} />
   {:else}
     <LiveWaveform meter />
-    <p class="lead">{app.canStart ? 'Ready when you are. Tap Start, then read the whole passage.' : 'Waiting for sound… say hello to the microphone.'}</p>
+    {#if app.canStart}
+      <p class="lead">Ready when you are. Tap Start, then read the whole passage.</p>
+    {:else}
+      <p class="lead">Waiting for sound… say hello to the microphone.</p>
+      {#if !showHelp}
+        <button class="text-button" onclick={() => (helpAsked = true)}>Start button stuck grey? Fix the microphone</button>
+      {/if}
+    {/if}
+    {#if showHelp}
+      <MicHelp trouble={app.micTrouble ?? 'quiet'} onretry={retry} ondismiss={hideHelp} />
+    {/if}
   {/if}
 
   <button class="big-button go" disabled={!app.canStart} onclick={() => app.startReading()}><Play size={44} aria-hidden="true" fill="currentColor" />Start</button>
