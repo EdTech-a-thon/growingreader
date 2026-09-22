@@ -18,6 +18,7 @@
       .filter((p): p is typeof p & { rate: number } => p.rate !== undefined)
       .sort((a, b) => a.reading.recordedAt - b.reading.recordedAt),
   );
+  const completeWithoutPassage = $derived(readings.some((r) => r.completion === 'complete' && !passageOf(r.passageId)));
 
   // Rate against date, but two readings minutes apart must still be two visible points:
   // place by time on a 0..1000 axis, then push any point that lands too close to its predecessor right.
@@ -234,7 +235,11 @@
 </script>
 
 {#if points.length === 0}
-  <p class="subtext">No complete readings yet. Rates appear here once a reading is reviewed and marked complete.</p>
+  {#if completeWithoutPassage}
+    <p class="subtext">No rates yet. A complete reading still needs a passage. Open it and choose the passage to calculate a rate.</p>
+  {:else}
+    <p class="subtext">No rates yet. Open a reading, choose its passage, and mark it complete to add its rate here.</p>
+  {/if}
 {:else}
   <div class="chart" role="img" aria-label="Rate over time: {points.length} readings">
     <canvas bind:this={canvas}></canvas>

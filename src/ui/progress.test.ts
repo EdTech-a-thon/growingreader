@@ -43,6 +43,20 @@ describe('Progress over time', () => {
   // The chart is a canvas; the list beside it carries every point for screen readers, keyboards and this suite.
   const chartPoints = () => within(screen.getByRole('list', { name: /readings on the chart/i })).getAllByRole('button');
 
+  test('a complete reading without a passage explains what is needed instead of saying it is incomplete', async () => {
+    const storage = new MemoryStorage();
+    await storage.putStudent({ id: 's1', firstName: 'Ada', lastName: 'Lovelace', archived: false, createdAt: 0 });
+    await storage.putReading(reading('r1', day(0), 100, { passageId: undefined }));
+    const h = await renderApp({ storage });
+
+    await h.user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+
+    expect(screen.getByText(/a complete reading still needs a passage/i)).toBeInTheDocument();
+    expect(screen.getByText(/open it and choose the passage to calculate a rate/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no complete readings yet/i)).not.toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getAllByRole('row')[1]).toHaveTextContent(/—.*Complete/);
+  });
+
   test('one point per complete reading, same-day readings kept separate; incomplete and unreviewed readings stay off', async () => {
     await seeded();
     expect(screen.getByRole('img', { name: /rate over time: 4 readings/i })).toBeInTheDocument();
