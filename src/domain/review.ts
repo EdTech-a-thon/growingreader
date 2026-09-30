@@ -333,9 +333,12 @@ export function sectionAudio(review: ReviewedTranscript, sections: Sections, sec
   return { start: spans[0].start, end: Math.max(...spans.map((x) => x.end)) };
 }
 
-/** Done: every paragraph heard, every spot settled. */
+/**
+ * Done: every spot settled. Which paragraphs have been listened to is still recorded
+ * (`paragraphs[].heard`) but no longer holds marking back.
+ */
 export function isFullyReviewed(review: ReviewedTranscript): boolean {
-  return review.paragraphs.every((p) => p.heard) && openSpots(review).length === 0;
+  return openSpots(review).length === 0;
 }
 
 // ---- forced alignment of what was heard ---------------------------------------------

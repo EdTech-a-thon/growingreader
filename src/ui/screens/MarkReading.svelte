@@ -404,7 +404,7 @@
         <p class="mark-summary" role="status" aria-label="Marks" data-tour="summary">
           {#if markState === 'marked'}
             {@const acc = accuracy(reading, passage)}
-            <Check size={16} aria-hidden="true" />Marked. {acc === undefined ? '' : `${Math.round(acc * 100)}% accuracy, `}{formatRate(wordsCorrectPerMinute(reading, passage))} words correct per minute.
+            <Check size={16} aria-hidden="true" />Marked · {errorCount} {errorCount === 1 ? 'error' : 'errors'} · {acc === undefined ? '' : `${Math.round(acc * 100)}% accuracy, `}{formatRate(wordsCorrectPerMinute(reading, passage))} words correct per minute
           {:else}
             {errorCount} {errorCount === 1 ? 'error' : 'errors'} · {open.length} {open.length === 1 ? 'spot' : 'spots'} to check
           {/if}
@@ -531,7 +531,6 @@
             statuses={wordStatuses}
             {marks}
             toCheck={open.length}
-            notHeard={review.paragraphs.filter((p) => !p.heard).length}
             reading={readingWord}
             {sentences}
             {sentence}

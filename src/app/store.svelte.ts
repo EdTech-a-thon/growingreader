@@ -492,7 +492,13 @@ export class App {
     if (!r || !version || !canReview(r)) return;
     if (r.reviewedTranscript?.passageVersion !== version.version || r.reviewedTranscript.formatVersion !== 2) {
       const review = draftReview(r.transcript!, version.text, version.version);
-      await this.saveReading({ ...r, reviewedTranscript: review, marks: deriveMarks(review), markedAt: undefined });
+      // With words still to place in the audio the spots may change, so it waits for that;
+      // without, a draft with nothing to check is marked as it stands.
+      if (this.canAlign) await this.saveReading({ ...r, reviewedTranscript: review, marks: deriveMarks(review), markedAt: undefined });
+      else await this.saveReviewed({ ...r, markedAt: undefined }, review);
+    } else if (r.markedAt === undefined && isFullyReviewed(r.reviewedTranscript)) {
+      // Settled before marking stopped waiting on every paragraph being listened to.
+      await this.saveReviewed(r, r.reviewedTranscript);
     }
     if (!this.reading(readingId)?.reviewedTranscript?.alignedBy) void this.alignReview(readingId);
   }

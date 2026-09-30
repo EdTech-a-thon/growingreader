@@ -107,7 +107,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     expect(screen.getByRole('region', { name: 'Passage' })).toBeInTheDocument();
     expect(card().getByText(/no sentence selected/i)).toBeInTheDocument();
     expect(heardWord(/^Sam$/)).toHaveAttribute('data-status', 'match');
-    expect(status()).toHaveTextContent('0 errors · 0 spots to check');
+    expect(status()).toHaveTextContent('Marked · 0 errors');
   });
 
   test('tapping a passage word picks its sentence and plays all of it', async () => {
@@ -138,7 +138,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     expect(playedFrom.at(-1)).toBeCloseTo(0);
     expect(card().getByText((_, el) => !!el?.classList.contains('repair-heard'))).toHaveTextContent('Heard Salmon for Sam and');
     await h.user.click(choice(/said the passage/i));
-    await waitFor(() => expect(status()).toHaveTextContent('0 errors · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 0 errors'));
     expect(heardWord(/^and$/)).toHaveAttribute('data-status', 'match');
     const review = (await storedReading(h)).reviewedTranscript!;
     expect(review.heard.slice(0, 2).map((w) => [w.text, w.origin])).toEqual([['Sam', 'teacher'], ['and', 'teacher']]);
@@ -170,7 +170,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     expect(box).toHaveValue('Salmon');
     await h.user.clear(box);
     await h.user.type(box, 'Sam{Enter}');
-    await waitFor(() => expect(status()).toHaveTextContent('1 error · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 1 error'));
   });
 
   test('tapping a spot plays exactly that spot, the same every time; settling it stays put', async () => {
@@ -188,7 +188,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     await h.user.click(choice(/heard it right/i));
     await waitFor(() => expect(card().getByText(/an error: substitution/i)).toBeInTheDocument());
     expect(playedFrom).toHaveLength(plays);
-    expect(status()).toHaveTextContent('1 error · 0 spots to check');
+    expect(status()).toHaveTextContent('Marked · 1 error');
     expect(heardWord(/^tint/)).toHaveAttribute('data-status', 'wrong');
   });
 
@@ -198,7 +198,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     await h.user.click(passageWord('At, to check'));
     expect(card().getByText((_, el) => !!el?.classList.contains('repair-heard'))).toHaveTextContent('Heard nothing for At night');
     await h.user.click(choice(/nothing was said/i));
-    await waitFor(() => expect(status()).toHaveTextContent('19 errors · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 19 errors'));
   });
 
   test('tapping a heard word plays from it to the end of its sentence', async () => {
@@ -221,10 +221,10 @@ describe('Marking is reconstructing the reading against the passage', () => {
     const box = card().getByRole('textbox', { name: /what was said/i });
     await h.user.clear(box);
     await h.user.type(box, 'want{Enter}');
-    await waitFor(() => expect(status()).toHaveTextContent('1 error · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 1 error'));
     await h.user.click(sentenceWord('to'));
     await h.user.click(choice(/nothing was said/i));
-    await waitFor(() => expect(status()).toHaveTextContent('2 errors · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 2 errors'));
   });
 
   test('a heard word dragged along the recording is placed there by hand', async () => {
@@ -241,18 +241,13 @@ describe('Marking is reconstructing the reading against the passage', () => {
     expect((await storedReading(h)).reviewedTranscript!.heard[1].start).toBeLessThan(before.start);
   });
 
-  test('the reading is marked only once nothing is left to check and the paragraph has been heard through', async () => {
+  test('the reading is marked once nothing is left to check, whether or not it was all listened to', async () => {
     const { h } = await reviewCampReading(CAMP_CLEAN.replace('The tent was red', 'The tint was red'));
     await openMarking(h);
     await h.user.click(heardWord(/^tint/));
     await h.user.click(choice(/said the passage/i));
-    await waitFor(() => expect(status()).toHaveTextContent('0 errors · 0 spots to check'));
-    expect((await storedReading(h)).markedAt).toBeUndefined();
-    expect(screen.getByText(/not heard all the way through yet/i)).toBeInTheDocument();
-
-    await playThrough(0, 11);
     await waitFor(async () => expect((await storedReading(h)).markedAt).toBeDefined());
-    expect(await screen.findByText(/marked\. 100% accuracy/i)).toBeInTheDocument();
+    expect(status()).toHaveTextContent('Marked · 0 errors · 100% accuracy');
 
     const reading = await storedReading(h);
     await h.user.click(screen.getByRole('button', { name: /back to review/i }));
@@ -277,7 +272,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     await openMarking(h);
     expect(within(screen.getByRole('group', { name: 'Paragraph 1' })).getByRole('img', { name: /paused 4\.\d s: a hesitation error/i })).toBeInTheDocument();
     expect(passageWord(/^The$/)).not.toHaveAttribute('data-mark');
-    expect(status()).toHaveTextContent('1 error · 0 spots to check');
+    expect(status()).toHaveTextContent('Marked · 1 error');
   });
 
   test('dragging across a phrase in the sentence picks it, to hear and settle together', async () => {
@@ -292,7 +287,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     const box = card().getByRole('textbox', { name: /what was said/i });
     await h.user.clear(box);
     await h.user.type(box, 'Sam an Pam{Enter}');
-    await waitFor(() => expect(status()).toHaveTextContent('1 error · 0 spots to check'));
+    await waitFor(() => expect(status()).toHaveTextContent('Marked · 1 error'));
   });
 
   test('the first time, a welcome says marking is new and offers a tour of each part; after that, only when asked', async () => {
@@ -322,7 +317,7 @@ describe('Marking is reconstructing the reading against the passage', () => {
     expect(screen.getByRole('dialog', { name: 'The passage' })).toBeInTheDocument();
     await h.user.click(screen.getByRole('button', { name: /skip the tour/i }));
     await h.user.click(screen.getByRole('button', { name: /back to review/i }));
-    await h.user.click(screen.getByRole('button', { name: /^mark accuracy$/i }));
+    await h.user.click(screen.getByRole('button', { name: /^change marks$/i }));
     await screen.findByRole('heading', { name: /mark reading · ada lovelace/i });
     expect(screen.queryByRole('dialog', { name: 'Marking a reading' })).not.toBeInTheDocument();
   });

@@ -163,11 +163,11 @@ describe('The teacher settles what was said', () => {
     expect(openSpots(review)).toEqual([]);
   });
 
-  test('marked once every spot is settled and every paragraph heard', () => {
+  test('marked once every spot is settled, whether or not every paragraph was listened to', () => {
     let review = draft('Sam and Pam went to camp. The tint was red.');
-    review = confirmHeard(review, heardIn(review, openSpots(review)[0]));
     expect(isFullyReviewed(review)).toBe(false);
-    review = markHeard(markHeard(review, 0), 1);
+    review = confirmHeard(review, heardIn(review, openSpots(review)[0]));
+    expect(review.paragraphs.every((p) => p.heard)).toBe(false);
     expect(isFullyReviewed(review)).toBe(true);
   });
 
