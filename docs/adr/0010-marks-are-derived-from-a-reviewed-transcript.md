@@ -18,7 +18,7 @@ The teacher settles each spot by ear. Tapping a spot plays exactly its stretch a
 | **X, another word** | Hidden: "corrected" to the passage ("dock" for "duck"). Tap the green word, **the pencil** (type what was said), red. | Y is X: **Heard it right**, red. Y is not X: **the pencil** (type what was said), red. | **the pencil** (type what was said), red. |
 | **Nothing** | Hidden: made up. Tap the green word, **Nothing was said**, red (omission). | **Nothing was said**, red (omission). | A skip: **Nothing was said**, red (omission). |
 
-The two hidden cells are why a green word can be picked and settled too, and why every paragraph must be heard through. A spot partly read ("Sam" read, "and" not) is edited to exactly what was said: what matches turns green, the rest red. Settling never moves on to the next spot by itself; Tab does. The passage is matched again after every change. Heard words between passage words read in order (a repeat, a restart, a self-correction) are grey and count for nothing. The gutter stays for timing: drag a word or its edges to where it was said (the mumble before "the"), which the app never moves after, or tap a gap to add a word.
+The two hidden cells are why a green word can be picked and settled too. A spot partly read ("Sam" read, "and" not) is edited to exactly what was said: what matches turns green, the rest red. Settling never moves on to the next spot by itself; Tab does. The passage is matched again after every change. Heard words between passage words read in order (a repeat, a restart, a self-correction) are grey and count for nothing. The gutter stays for timing: drag a word or its edges to where it was said (the mumble before "the"), which the app never moves after, or tap a gap to add a word.
 
 Nothing is shown until what was heard is placed in the audio, so no word moves after it appears. Meanwhile a checklist shows the real stages: writing down what was said, getting word timing ready, finding when each word was said.
 
@@ -28,7 +28,7 @@ The screen is full width, in two columns, with the marks so far (errors, spots t
 
 - A passage word in a settled spot is an error: an omission if nothing was heard over the spot, otherwise a substitution.
 - Three seconds or more between the word before and a word read correctly is a hesitation error. DIBELS has the examiner supply the word after three seconds; nobody is here to. It is drawn as the pause itself, between the words ("paused 4.0 s"), not as a slash on the word, which was read as printed.
-- A reading is **marked** once no spot is left to settle **and** every paragraph has been played through (nine-tenths of it). Otherwise only the spots would ever be heard, and a word the recogniser wrote as the passage's word where the child said something close ("dock" for "duck") would slip past. The teacher fixes such a word in the gutter.
+- A reading is **marked** once no spot is left to settle. It used to also wait until every paragraph had been played through (nine-tenths of it), so a word the recogniser wrote as the passage's word where the child said something close ("dock" for "duck") would not slip past; teachers settled every spot and still saw no accuracy, with nothing on screen saying why, so that condition is dropped for now. Which paragraphs were played is still recorded. The teacher fixes such a word in the gutter.
 - Self-corrections are read correctly, and are not recorded separately for now.
 
 ## Considered options

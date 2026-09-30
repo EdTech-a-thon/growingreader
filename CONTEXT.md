@@ -93,7 +93,7 @@ A mark saying the student misread the word and fixed it within three seconds. Th
 _Avoid_: SC, fix, correction (unqualified)
 
 **Marked reading**:
-A complete reading with no spot left to settle and every paragraph played through at least once. A marked reading with no marks means the student made no errors; an unmarked reading means nobody has finished listening. Only complete readings can be marked.
+A complete reading with no spot left to settle. A marked reading with no marks means the student made no errors; an unmarked reading means spots are still to settle. Only complete readings can be marked.
 _Avoid_: Scored reading, graded reading
 
 **Errors**:

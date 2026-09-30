@@ -16,7 +16,6 @@
     statuses,
     marks,
     toCheck,
-    notHeard,
     reading,
     sentences,
     sentence,
@@ -29,7 +28,6 @@
     /** Spots still to settle. */
     toCheck: number;
     /** Paragraphs not yet played through. */
-    notHeard: number;
     reading: number | undefined;
     sentences: PassageLine[];
     /** The sentence being worked on. */
@@ -48,10 +46,9 @@
     <span class="passage-card-status" role="status">
       {#if toCheck > 0}
         <span class="to-check">⚠ {toCheck} to check</span>
-      {:else if notHeard === 0}
+      {:else}
         <Check size={14} aria-hidden="true" /> Done
       {/if}
-      {#if notHeard > 0}<span class="not-heard">· {notHeard === 1 ? 'a paragraph' : `${notHeard} paragraphs`} not heard all the way through yet</span>{/if}
     </span>
   </div>
   {#each layout as lines, p (p)}
@@ -94,10 +91,5 @@
 
   .to-check {
     color: var(--amber);
-  }
-
-  .not-heard {
-    color: var(--muted);
-    font-weight: 400;
   }
 </style>
