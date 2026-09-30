@@ -6,7 +6,7 @@
   const app = useApp();
 
   const items = [
-    { name: 'Roster', icon: Users, screen: { name: 'roster' } as const, matches: ['roster', 'student', 'review'] },
+    { name: 'Roster', icon: Users, screen: { name: 'roster' } as const, matches: ['roster', 'student', 'review', 'mark'] },
     { name: 'Passages', icon: BookOpen, screen: { name: 'passages' } as const, matches: ['passages'] },
     { name: 'Settings', icon: Settings2, screen: { name: 'settings' } as const, matches: ['settings'] },
   ];

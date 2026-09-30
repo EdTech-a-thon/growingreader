@@ -12,10 +12,13 @@
     bounds,
     auto,
     playhead = 0,
+    empty = 'Waveform appears once the audio loads.',
     onseek,
     onchange,
   }: {
     samples: Float32Array | undefined;
+    /** What shows where the waveform would be, until there are samples. */
+    empty?: string;
     duration: number;
     /** The bounds in force. */
     bounds: Bounds;
@@ -121,7 +124,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="waveform" class:draggable={!!onchange} bind:this={el} onpointerdown={seek}>
   {#if peaks.length === 0}
-    <div class="waveform-empty">{samples ? '' : 'Waveform appears once the audio loads.'}</div>
+    <div class="waveform-empty">{samples ? '' : empty}</div>
   {:else}
     <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" aria-hidden="true">
       {#each peaks as peak, i (i)}

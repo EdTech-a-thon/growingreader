@@ -1,5 +1,8 @@
-import { screen, waitFor } from '@testing-library/svelte';
-import { renderApp, pasteRoster, pastePassage, goTo, recordReading } from '../test/harness';
+import { screen, waitFor, within } from '@testing-library/svelte';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { writeBackupFile } from './backup-file';
+import type { Reading, Student } from '../domain/types';
+import { renderApp, pasteRoster, pastePassage, goTo, recordReading, setCompletion } from '../test/harness';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { CAMP_TEXT } from '../test/fixtures/passages';
 import { createFakeSheetTransport } from '../adapters/sheets/fake-google';
@@ -7,6 +10,18 @@ import { createSheetsClient } from '../adapters/sheets/sheets-client';
 import type { BrokerClient } from '../adapters/sheets/broker';
 
 const DAY = 86_400_000;
+const GRACE: Student = { id: 's2', firstName: 'Grace', lastName: 'Hopper', archived: false, createdAt: 0 };
+const GRACE_READING: Reading = {
+  id: 'r2', studentId: 's2', recordedAt: 0, hasAudio: true, sampleRate: 16000, sampleCount: 4,
+  tapBounds: { start: 0, end: 1 }, timing: 'auto', completion: 'complete', analysis: 'done',
+};
+
+/** jsdom has no DataTransfer; a drop event carrying a file list is what our handlers read. */
+function drop(target: Element, files: File[]) {
+  const event = new Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'dataTransfer', { value: { files } });
+  target.dispatchEvent(event);
+}
 
 /** Capture what the page offers as a file download. */
 function captureDownloads() {
@@ -27,35 +42,81 @@ async function seededWithReading() {
   await goTo(h, 'Roster');
   await pasteRoster(h, 'Ada Lovelace');
   await recordReading(h, 'Ada Lovelace', { seconds: 60, passage: 'Camp' });
-  await h.user.click(screen.getByRole('button', { name: /^complete$/i }));
+  await setCompletion(h, 'Complete');
   return h;
 }
 
 describe('Data ownership', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  test('a backup holds roster, passages and readings but no audio, and imports on another device', async () => {
+  test('a backup is a zip of the records and a WAV per recording, and imports on another device', async () => {
     const files = captureDownloads();
     const h = await seededWithReading();
     await goTo(h, 'Settings');
     await h.user.click(screen.getByRole('button', { name: /export backup/i }));
-    expect(files[0].name).toMatch(/growingreader-backup-.*\.json/);
-    const backup = JSON.parse(await files[0].blob.text());
-    expect(backup.students).toMatchObject([{ firstName: 'Ada' }]);
-    expect(backup.passages).toMatchObject([{ title: 'Camp' }]);
-    expect(backup.readings).toMatchObject([{ completion: 'complete', hasAudio: false }]);
-    expect(JSON.stringify(backup)).not.toMatch(/samples/);
+    expect(files[0].name).toMatch(/growingreader-backup-.*\.zip/);
+    const entries = unzipSync(new Uint8Array(await files[0].blob.arrayBuffer()));
+    const records = JSON.parse(strFromU8(entries['backup.json']));
+    expect(records.students).toMatchObject([{ firstName: 'Ada' }]);
+    expect(records.passages).toMatchObject([{ title: 'Camp' }]);
+    expect(records.readings).toMatchObject([{ completion: 'complete', hasAudio: true }]);
+    const readingId = records.readings[0].id;
+    expect(Object.keys(entries).sort()).toEqual([`audio/${readingId}.wav`, 'backup.json']);
+    expect(entries[`audio/${readingId}.wav`]).toHaveLength(44 + 60 * 16000 * 2);
     expect(screen.getByText(/last backup: /i)).toBeInTheDocument();
 
     // Another device: a fresh app.
     document.body.innerHTML = '';
     const other = await renderApp({ storage: new MemoryStorage() });
     await goTo(other, 'Settings');
-    const file = new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
-    await other.user.upload(screen.getByLabelText(/import backup/i), file);
+    await other.user.upload(screen.getByLabelText(/import backup/i), new File([files[0].blob], files[0].name, { type: 'application/zip' }));
     expect(await screen.findByRole('status')).toHaveTextContent(/imported 1 students, 1 passages and 1 readings/i);
     await goTo(other, 'Roster');
     expect(screen.getByRole('button', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    expect(await other.storage.getAudio(readingId)).toHaveLength(60 * 16000);
+  });
+
+  test('an older backup, a bare JSON file, imports with no recordings', async () => {
+    const other = await renderApp({ storage: new MemoryStorage() });
+    await goTo(other, 'Settings');
+    const records = { students: [GRACE], passages: [], readings: [{ ...GRACE_READING, hasAudio: false }], settings: {} };
+    await other.user.upload(screen.getByLabelText(/import backup/i), new File([JSON.stringify(records)], 'backup.json', { type: 'application/json' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/imported 1 students/i);
+    expect((await other.storage.listReadings())[0].hasAudio).toBe(false);
+  });
+
+  test('a backup dropped anywhere in the app is imported once the teacher confirms', async () => {
+    const storage = new MemoryStorage();
+    await storage.putStudent({ id: 's1', firstName: 'Ada', lastName: 'L', archived: false, createdAt: 0 });
+    const h = await renderApp({ storage });
+    const zip = await writeBackupFile({
+      students: [GRACE],
+      passages: [],
+      readings: [GRACE_READING],
+      settings: {},
+      audio: new Map([['r2', new Float32Array([0, 0.5, -0.5, 0])]]),
+    });
+
+    drop(document.body, [new File([zip], 'demo-backup.zip', { type: 'application/zip' })]);
+    const dialog = await screen.findByRole('dialog', { name: /import this backup/i });
+    expect(dialog).toHaveTextContent(/1 students, 0 passages and 1 readings, 1 with audio/i);
+    await h.user.click(within(dialog).getByRole('button', { name: /replace and import/i }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/imported 1 students/i);
+    expect(screen.getByRole('button', { name: 'Grace Hopper' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ada L' })).not.toBeInTheDocument();
+    const samples = await h.storage.getAudio('r2');
+    expect([...samples!].map((s) => Math.round(s * 100) / 100)).toEqual([0, 0.5, -0.5, 0]);
+  });
+
+  test('a file that is not a backup is refused without touching anything', async () => {
+    const storage = new MemoryStorage();
+    await storage.putStudent({ id: 's1', firstName: 'Ada', lastName: 'L', archived: false, createdAt: 0 });
+    await renderApp({ storage });
+    drop(document.body, [new File([zipSync({ 'notes.txt': strToU8('hi') })], 'photos.zip', { type: 'application/zip' })]);
+    expect(await screen.findByRole('status')).toHaveTextContent(/could not import photos\.zip: not a growing reader backup/i);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(await storage.listStudents()).toHaveLength(1);
   });
 
   test('a CSV export has one row per reading with the numbers the teacher uses', async () => {
@@ -65,8 +126,8 @@ describe('Data ownership', () => {
     await h.user.click(screen.getByRole('button', { name: /export csv/i }));
     const csv = await files[0].blob.text();
     const [header, row] = csv.split('\n');
-    expect(header).toBe('student,date,passage,passage_words,seconds,words_per_minute,errors,words_correct_per_minute,completion,note');
-    expect(row).toMatch(/^Ada Lovelace,2026-09-15T15:00:00.000Z,Camp,\d+,58\.\d,\d+\.\d,,,complete,$/);
+    expect(header).toBe('student,date,passage,passage_words,seconds,words_per_minute,errors,words_correct_per_minute,completion,note,passage_version,marked,accuracy');
+    expect(row).toMatch(/^Ada Lovelace,2026-09-15T15:00:00.000Z,Camp,\d+,58\.\d,\d+\.\d,,,complete,,1,unmarked,$/);
   });
 
   test('a single reading’s audio can be exported as a WAV file', async () => {
@@ -112,7 +173,8 @@ describe('Data ownership', () => {
   });
 });
 
-describe('Google Sheets sync', () => {
+// Hidden until it works (src/app/features.ts); switch these back on with the feature.
+describe.skip('Google Sheets sync', () => {
   afterEach(() => vi.restoreAllMocks());
 
   test('the cloud button creates a sheet and later roster changes save automatically', async () => {

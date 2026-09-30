@@ -1,7 +1,10 @@
 const EDGE_PUNCTUATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 
-/** Whitespace-separated tokens with edge punctuation stripped; empty tokens dropped. */
-function wordTokens(text: string): string[] {
+/**
+ * The passage's words as the teacher counts them on paper, in order: whitespace-separated,
+ * edge punctuation stripped, empty tokens dropped. A mark points at a position in this list.
+ */
+export function passageWords(text: string): string[] {
   return text
     .split(/\s+/)
     .map((t) => t.replace(EDGE_PUNCTUATION, ''))
@@ -13,7 +16,7 @@ function wordTokens(text: string): string[] {
  * strip punctuation, a hyphenated token is one word. The title is not part of `text`.
  */
 export function countWords(text: string): number {
-  return wordTokens(text).length;
+  return passageWords(text).length;
 }
 
 /** Normalised tokens for transcript/passage alignment: lowercase, hyphens split, inner apostrophes kept. */

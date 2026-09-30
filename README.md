@@ -39,7 +39,7 @@ The local broker opens a fake Google consent screen and the fake Sheets adapter 
 
 ## Layout
 
-- `src/domain/` — types and derivations (rate, words correct per minute, roster parsing).
+- `src/domain/` — types and derivations (rate, words correct per minute, roster parsing). `passage.ts` keeps passage versions (ADR-0007); `marks.ts` turns the teacher's marks into errors and accuracy (ADR-0008).
 - `src/analysis/` — pure functions: word counting, silence trimming, passage identification, restart-forgiving alignment for completion and timing. Unit-tested with fixtures; every threshold is a guess until tuned on real recordings.
 - `src/adapters/` — the device and network seams, each with a real adapter and a fake:
   - `storage/` IndexedDB (audio stored as raw Float32) / in-memory
@@ -49,7 +49,7 @@ The local broker opens a fake Google consent screen and the fake Sheets adapter 
   - `sheets/` auth-broker client, Google Sheets transport, report serializer / in-memory fake
 - `src/app/store.svelte.ts` — the App: state, actions, microphone session, analysis queue.
 - `src/app/routes.ts` — the path ↔ screen mapping; the teacher's screens have addresses, the student-facing three do not (ADR-0006).
-- `src/ui/` — screens, plus the shared pieces: `PassageImportList` (checking a batch of files before saving), `PassagePreview` (the extracted text, read-only), `LostReadingBanner`, `Waveform` (review: peaks with the start and end handles the teacher drags over them), `LiveWaveform` (start/recording: the microphone level scrolling by), `PassagePicker` (step one of handing over), `Modal`, `BottomNav`. Student-facing screens (Start, Recording, Done) have no navigation; everything else, including a student's page, is the teacher's.
+- `src/ui/` — screens, plus the shared pieces: `PassageImportList` (checking a batch of files before saving), `PassagePreview` (the extracted text, read-only), `LostReadingBanner`, `Waveform` (review: peaks with the start and end handles the teacher drags over them), `LiveWaveform` (start/recording: the microphone level scrolling by), `PassagePicker` (step one of handing over), `passage-layout` (a passage version's text as tappable words in its printed lines, for the Mark reading screen), `Modal`, `BottomNav`. Student-facing screens (Start, Recording, Done) have no navigation; everything else, including a student's page, is the teacher's.
 - `src/test/harness.ts` — renders the whole app with fakes; the primary test seam.
 
 ## Deploying (not done here)

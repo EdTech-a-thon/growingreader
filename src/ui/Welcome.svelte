@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SHEETS_SYNC } from '../app/features';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import BookOpen from '@lucide/svelte/icons/book-open';
   import ChartNoAxesCombined from '@lucide/svelte/icons/chart-no-axes-combined';
@@ -117,7 +118,7 @@
 
     <section class="welcome-privacy" aria-labelledby="welcome-privacy-title">
       <span class="privacy-sprout"><ShieldCheck size={30} aria-hidden="true" /></span>
-      <div><p class="welcome-eyebrow">Private by default</p><h2 id="welcome-privacy-title">Student voices stay with you.</h2><p>Recordings and speech analysis stay on this device. Google Sheets sync is optional and sends only the roster, passages, results, notes, and transcript text—never the audio.</p></div>
+      <div><p class="welcome-eyebrow">Private by default</p><h2 id="welcome-privacy-title">Student voices stay with you.</h2><p>Recordings and speech analysis stay on this device.{SHEETS_SYNC ? ' Google Sheets sync is optional and sends only the roster, passages, results, notes, and transcript text—never the audio.' : ''}</p></div>
       <button class="welcome-cta secondary" onclick={onstart}>Get started <ArrowRight size={18} aria-hidden="true" /></button>
     </section>
   </main>

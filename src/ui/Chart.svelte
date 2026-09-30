@@ -2,6 +2,7 @@
   import { Chart, LineController, LineElement, PointElement, LinearScale, Tooltip, Legend, type ChartConfiguration, type Plugin } from 'chart.js';
   import type { Passage, Reading } from '../domain/types';
   import { rate, wordsCorrectPerMinute } from '../domain/rate';
+  import { accuracy } from '../domain/marks';
   import { formatDate, formatDateTime } from './format';
 
   Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, Legend);
@@ -14,7 +15,7 @@
   const points = $derived(
     readings
       .filter((r) => r.completion === 'complete')
-      .map((r) => ({ reading: r, rate: rate(r, passageOf(r.passageId)), wcpm: wordsCorrectPerMinute(r, passageOf(r.passageId)) }))
+      .map((r) => ({ reading: r, rate: rate(r, passageOf(r.passageId)), wcpm: wordsCorrectPerMinute(r, passageOf(r.passageId)), accuracy: accuracy(r, passageOf(r.passageId)) }))
       .filter((p): p is typeof p & { rate: number } => p.rate !== undefined)
       .sort((a, b) => a.reading.recordedAt - b.reading.recordedAt),
   );
@@ -35,15 +36,24 @@
     return overflow > 0 ? raw.map((x) => x * (SPAN / (SPAN + overflow))) : raw;
   });
 
+  // A new passage version is marked like a new passage: the app cannot tell a typo fix from a rewrite (ADR-0007).
   const passageChanges = $derived(
-    points.flatMap((p, i) => (i > 0 && p.reading.passageId !== points[i - 1].reading.passageId ? [{ i, title: passageOf(p.reading.passageId)?.title ?? 'Passage' }] : [])),
+    points.flatMap((p, i) => {
+      if (i === 0) return [];
+      const before = points[i - 1].reading;
+      const title = passageOf(p.reading.passageId)?.title ?? 'Passage';
+      if (p.reading.passageId !== before.passageId) return [{ i, title, edited: false, label: `New passage: ${title}` }];
+      if (p.reading.passageVersion !== before.passageVersion) return [{ i, title, edited: true, label: `Passage edited: ${title}` }];
+      return [];
+    }),
   );
   const describe = (i: number) => {
     const p = points[i];
     const change = passageChanges.find((c) => c.i === i);
     const parts = [`${formatDate(p.reading.recordedAt)}: ${Math.round(p.rate)} words per minute`];
     if (p.wcpm !== undefined) parts.push(`${Math.round(p.wcpm)} words correct per minute`);
-    if (change) parts.push(`new passage: ${change.title}`);
+    if (p.accuracy !== undefined) parts.push(`${Math.round(p.accuracy * 100)}% accuracy`);
+    if (change) parts.push(`${change.edited ? 'passage edited' : 'new passage'}: ${change.title}`);
     return parts.join(', ');
   };
 
@@ -61,9 +71,12 @@
     const muted = token('--muted', '#6e7890');
     const line = token('--line', '#e3e8f1');
     const paper = token('--paper', '#ffffff');
+    // Three lines that must be told apart at a glance: each its own colour and its own marker.
     const rateColor = token('--blue', '#437b50');
-    const wcpmColor = token('--green', '#3f9b77');
+    const wcpmColor = '#2f6fb3';
     const changeColor = token('--amber', '#b7791f');
+    const accuracyColor = '#8a4fb8';
+    const hasAccuracy = points.some((p) => p.accuracy !== undefined);
     const font = { family: getComputedStyle(document.body).fontFamily, size: 12 };
     const snapshot = points;
     const positions = xs;
@@ -88,7 +101,13 @@
       },
     };
 
-    /** A dashed line and label wherever the passage changes, because difficulty changes the number (ADR-0001). */
+    /**
+     * A dashed line and label wherever the passage changes, because difficulty changes the
+     * number (ADR-0001). The labels sit in a band above the plot, in as many rows as they need
+     * so none overlaps another; one that fits no row is left to the tooltip.
+     */
+    const LABEL_ROWS = 3;
+    const ROW_HEIGHT = 15;
     const passageMarks: Plugin<'line'> = {
       id: 'passageMarks',
       beforeDatasetsDraw(chart) {
@@ -98,16 +117,29 @@
         ctx.font = `700 11px ${font.family}`;
         ctx.fillStyle = changeColor;
         ctx.strokeStyle = changeColor;
-        ctx.setLineDash([5, 4]);
+        const rowEnds: number[] = [];
         for (const change of changes) {
           const x = scales.x.getPixelForValue(positions[change.i]) - 12;
+          ctx.setLineDash([5, 4]);
           ctx.beginPath();
           ctx.moveTo(x, chartArea.top);
           ctx.lineTo(x, chartArea.bottom);
           ctx.stroke();
-          const nearRightEdge = x > chartArea.left + (chartArea.right - chartArea.left) * 0.66;
-          ctx.textAlign = nearRightEdge ? 'right' : 'left';
-          ctx.fillText(`New passage: ${change.title}`, x + (nearRightEdge ? -6 : 6), chartArea.top + 12);
+          const width = ctx.measureText(change.label).width;
+          // Left of the line near the right edge, else right of it.
+          const left = x + 6 + width > chartArea.right ? x - 6 - width : x + 6;
+          const row = [...Array(LABEL_ROWS).keys()].find((r) => (rowEnds[r] ?? -Infinity) + 10 <= left);
+          if (row === undefined) continue;
+          rowEnds[row] = left + width;
+          const y = chartArea.top - 6 - row * ROW_HEIGHT;
+          ctx.textAlign = 'left';
+          ctx.fillText(change.label, left, y);
+          // A tick from the label down to its line, so a raised label still points at it.
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(x, y + 3);
+          ctx.lineTo(x, chartArea.top);
+          ctx.stroke();
         }
         ctx.restore();
       },
@@ -134,6 +166,7 @@
             label: 'Words per minute',
             data: snapshot.map((p, i) => ({ x: positions[i], y: p.rate })),
             ...pointStyle(rateColor),
+            pointStyle: 'circle' as const,
           },
           ...(snapshot.some((p) => p.wcpm !== undefined)
             ? [
@@ -143,7 +176,23 @@
                   spanGaps: true,
                   borderDash: [5, 4],
                   ...pointStyle(wcpmColor),
-                  pointRadius: 3.5,
+                  pointRadius: 4,
+                  pointStyle: 'rect' as const,
+                },
+              ]
+            : []),
+          // Accuracy is a share, not a rate: its own 0–100% scale on the right.
+          ...(hasAccuracy
+            ? [
+                {
+                  label: 'Accuracy',
+                  data: snapshot.map((p, i) => ({ x: positions[i], y: p.accuracy === undefined ? NaN : p.accuracy * 100 })),
+                  yAxisID: 'accuracy',
+                  spanGaps: true,
+                  borderDash: [2, 3],
+                  ...pointStyle(accuracyColor),
+                  pointRadius: 4.5,
+                  pointStyle: 'triangle' as const,
                 },
               ]
             : []),
@@ -153,7 +202,8 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        layout: { padding: { top: 8, right: 16 } },
+        // Room above the plot for the passage labels' rows.
+        layout: { padding: { top: changes.length > 0 ? 8 + LABEL_ROWS * ROW_HEIGHT : 8, right: 16 } },
         interaction: { mode: 'index', intersect: false, axis: 'x' },
         onClick: (_event, elements) => {
           const hit = elements[0];
@@ -192,12 +242,23 @@
             ticks: { color: muted, font, maxTicksLimit: 6, padding: 8 },
             title: { display: true, text: 'words per minute', color: muted, font: { ...font, weight: 'bold' } },
           },
+          accuracy: {
+            display: hasAccuracy,
+            position: 'right',
+            min: 0,
+            max: 100,
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: muted, font, maxTicksLimit: 6, padding: 8, callback: (value) => `${value}%` },
+            title: { display: true, text: 'accuracy', color: muted, font: { ...font, weight: 'bold' } },
+          },
         },
         plugins: {
           legend: {
-            display: snapshot.some((p) => p.wcpm !== undefined),
+            display: snapshot.some((p) => p.wcpm !== undefined) || hasAccuracy,
             position: 'bottom',
-            labels: { color: ink, font, usePointStyle: true, pointStyle: 'line', boxWidth: 24 },
+            // Each line's own marker and colour, as drawn.
+            labels: { color: ink, font, usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 16 },
           },
           tooltip: {
             backgroundColor: ink,
@@ -209,19 +270,28 @@
             cornerRadius: 8,
             displayColors: true,
             usePointStyle: true,
-            boxPadding: 4,
+            boxWidth: 9,
+            boxHeight: 9,
+            boxPadding: 6,
+            // Otherwise each marker sits on a white square and reads as white.
+            multiKeyBackground: 'transparent',
             callbacks: {
               title: (items) => {
                 const p = snapshot[items[0].dataIndex];
                 return formatDateTime(p.reading.recordedAt);
               },
-              label: (item) => ` ${Math.round(item.parsed.y ?? 0)} ${item.dataset.label?.toLowerCase()}`,
+              label: (item) => (item.dataset.yAxisID === 'accuracy' ? ` ${Math.round(item.parsed.y ?? 0)}% accuracy` : ` ${Math.round(item.parsed.y ?? 0)} ${item.dataset.label?.toLowerCase()}`),
               afterBody: (items) => {
                 const p = snapshot[items[0].dataIndex];
                 const title = passageOf(p.reading.passageId)?.title;
                 return title ? [``, title, onselect ? 'Tap to open' : ''] : [];
               },
-              labelPointStyle: () => ({ pointStyle: 'line' as const, rotation: 0 }),
+              // The same marker and colour as the line, so a number is easy to match to it.
+              labelPointStyle: (item) => ({ pointStyle: ((item.dataset as { pointStyle?: 'circle' | 'rect' | 'triangle' }).pointStyle ?? 'circle'), rotation: 0 }),
+              labelColor: (item) => {
+                const color = String(item.dataset.borderColor);
+                return { borderColor: color, backgroundColor: color, borderWidth: 1 };
+              },
             },
           },
         },
@@ -241,7 +311,7 @@
     <p class="subtext">No rates yet. Open a reading, choose its passage, and mark it complete to add its rate here.</p>
   {/if}
 {:else}
-  <div class="chart" role="img" aria-label="Rate over time: {points.length} readings">
+  <div class="chart" role="img" aria-label="Rate and accuracy over time: {points.length} readings">
     <canvas bind:this={canvas}></canvas>
   </div>
   <ul class="sr-only" aria-label="Readings on the chart">

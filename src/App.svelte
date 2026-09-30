@@ -10,6 +10,7 @@
   import Recording from './ui/screens/Recording.svelte';
   import Done from './ui/screens/Done.svelte';
   import Review from './ui/screens/Review.svelte';
+  import MarkReading from './ui/screens/MarkReading.svelte';
   import Passages from './ui/screens/Passages.svelte';
   import Settings from './ui/screens/Settings.svelte';
   import SyncDialog from './ui/SyncDialog.svelte';
@@ -17,6 +18,7 @@
   import AboutPage from './ui/AboutPage.svelte';
   import PrivacyPage from './ui/PrivacyPage.svelte';
   import Help from './ui/Help.svelte';
+  import BackupDrop from './ui/BackupDrop.svelte';
   import { consumeArrivalError, describeArrivalError } from './adapters/sheets/broker';
   import { isStaticPage, pathForScreen, screenForPath } from './app/routes';
   import { hasBeenWelcomed, markWelcomed } from './app/welcomed';
@@ -139,12 +141,15 @@
       <Done readingId={app.screen.readingId} />
     {:else if app.screen.name === 'review'}
       <Review readingId={app.screen.readingId} />
+    {:else if app.screen.name === 'mark'}
+      <MarkReading readingId={app.screen.readingId} />
     {:else if app.screen.name === 'passages'}
       <Passages />
     {:else if app.screen.name === 'settings'}
       <Settings />
     {/if}
-    {#if !studentFacing}
+    <!-- Marking is an editor that uses the whole window; Back to review is the way out. -->
+    {#if !studentFacing && app.screen.name !== 'mark'}
       <BottomNav />
     {/if}
     {#if app.syncDialogOpen}
@@ -159,5 +164,12 @@
       </div>
     {/if}
   {/if}
-  <Help />
+  <!-- Also on the welcome screen: restoring a backup is how a new device starts. -->
+  {#if app.ready && welcomeChecked && !isStaticPage(path)}
+    <BackupDrop enabled={!studentFacing} onimported={enterApp} />
+  {/if}
+  <!-- The student's screens reach nothing else, help included. -->
+  {#if !studentFacing}
+    <Help />
+  {/if}
 </div>

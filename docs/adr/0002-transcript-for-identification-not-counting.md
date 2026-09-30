@@ -1,5 +1,5 @@
 ---
-status: accepted, amended by ADR-0003 (an estimate is shown on review only)
+status: accepted, amended by ADR-0003 (an estimate is shown on review only) and ADR-0010 (marks come from the transcript once the teacher has reviewed it)
 ---
 
 # The transcript identifies the passage and confirms completion; it never produces a number

@@ -1,5 +1,7 @@
 import type { Bounds, Passage, Reading, TimingSource } from './types';
 import { countWords } from '../analysis/words';
+import { versionReadBy } from './passage';
+import { errorsOf } from './marks';
 
 export function durationOf(bounds: Bounds): number {
   return Math.max(0, bounds.end - bounds.start);
@@ -46,22 +48,26 @@ export function activeDuration(reading: Reading): number {
   return durationOf(activeBounds(reading));
 }
 
-/** Words per minute. Only exists once the passage is known and the reading is complete (ADR-0001). */
+/**
+ * Words per minute: the word count of the passage version read over the time spent reading.
+ * Only exists once the passage is known and the reading is complete (ADR-0001, ADR-0007).
+ */
 export function rate(reading: Reading, passage: Passage | undefined): number | undefined {
-  if (!passage || reading.passageId !== passage.id) return undefined;
-  if (reading.completion !== 'complete') return undefined;
+  const version = versionReadBy(reading, passage);
+  if (!version || reading.completion !== 'complete') return undefined;
   const seconds = activeDuration(reading);
   if (seconds <= 0) return undefined;
-  return (passage.wordCount / seconds) * 60;
+  return (version.wordCount / seconds) * 60;
 }
 
-/** (Word count minus errors) per minute. Only exists when the teacher has entered errors. */
+/** (Word count minus errors) per minute. Only exists for a marked reading, or an older one with a counted figure. */
 export function wordsCorrectPerMinute(reading: Reading, passage: Passage | undefined): number | undefined {
-  if (reading.errors === undefined) return undefined;
-  const r = rate(reading, passage);
-  if (r === undefined || !passage) return undefined;
+  const errors = errorsOf(reading);
+  if (errors === undefined) return undefined;
+  const version = versionReadBy(reading, passage);
+  if (!version || rate(reading, passage) === undefined) return undefined;
   const seconds = activeDuration(reading);
-  return (Math.max(0, passage.wordCount - reading.errors) / seconds) * 60;
+  return (Math.max(0, version.wordCount - errors) / seconds) * 60;
 }
 
 export function formatRate(value: number | undefined): string {

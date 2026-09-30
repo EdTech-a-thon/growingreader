@@ -14,6 +14,8 @@ export function pathForScreen(screen: Screen): string | undefined {
       return `/students/${screen.studentId}`;
     case 'review':
       return `/readings/${screen.readingId}`;
+    case 'mark':
+      return `/readings/${screen.readingId}/mark`;
     case 'passages':
       return '/passages';
     case 'settings':
@@ -33,6 +35,8 @@ export function screenForPath(path: string): Screen | undefined {
   if (student) return { name: 'student', studentId: decodeURIComponent(student[1]) };
   const reading = clean.match(/^\/readings\/([^/]+)$/);
   if (reading) return { name: 'review', readingId: decodeURIComponent(reading[1]) };
+  const marking = clean.match(/^\/readings\/([^/]+)\/mark$/);
+  if (marking) return { name: 'mark', readingId: decodeURIComponent(marking[1]) };
   return undefined;
 }
 

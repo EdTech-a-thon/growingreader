@@ -1,12 +1,18 @@
-import type { Storage, Snapshot } from '../adapters/storage/Storage';
+import type { Storage } from '../adapters/storage/Storage';
+import type { Backup } from '../domain/backup';
 import type { Microphone, MicrophoneHandle } from '../adapters/microphone/Microphone';
 import type { Transcriber } from '../adapters/transcriber/Transcriber';
 import type { DocumentImporter, ImportedDocument } from '../adapters/documents/DocumentImporter';
-import { isAnalysing, isDiscarded, newId, type Bounds, type CompletionState, type Id, type Passage, type PassageSource, type Reading, type ReadingInProgress, type Settings, type StorageUsage, type Student } from '../domain/types';
+import { isAnalysing, isDiscarded, newId, type Bounds, type CompletionState, type Id, type Passage, type PassageSource, type Reading, type ReadingInProgress, type ReviewedTranscript, type Settings, type StorageUsage, type Student } from '../domain/types';
 import type { BrokerClient, DriveConnection } from '../adapters/sheets/broker';
 import { BrokerError } from '../adapters/sheets/broker';
 import type { SheetsClient, SyncData } from '../adapters/sheets/sheets-client';
 import { clampBounds } from '../domain/rate';
+import { latestVersion, passageParagraphs, revisePassage, versionOf, versionReadBy, type PassageLine } from '../domain/passage';
+import { canMark, canReview } from '../domain/marks';
+import { alignHeard, deriveMarks, draftReview, isFullyReviewed } from '../domain/review';
+import type { Emissions } from '../analysis/ctc';
+import type { AlignPhase, Aligner } from '../adapters/aligner/Aligner';
 import { parseName, parseRoster, type ParsedName } from '../domain/roster';
 import { alignToPassage, assessCompletion, countWords, identifyPassage, passageSimilarity, refineTiming, tokenize, trimSilence } from '../analysis';
 
@@ -15,6 +21,8 @@ export interface AppDeps {
   microphone: Microphone;
   transcriber: Transcriber;
   documents: DocumentImporter;
+  /** Forced alignment for marking; optional, as marking works on the recogniser's times without it. */
+  aligner?: Aligner;
   now?: () => number;
   /** How long the teacher holds to unlock the Done screen. */
   longPressMs?: number;
@@ -26,6 +34,44 @@ export interface AppDeps {
   clearSheetAuthorization?: () => void;
 }
 
+/** What a change to a review may need: the passage it is against, the model's frames if to hand, and the recording's length. */
+export interface ReviewContext {
+  text: string;
+  sections: PassageLine[];
+  em?: Emissions;
+  duration: number;
+}
+
+export type AlignmentState =
+  /**
+   * `reading`: the recording is read from this device. `download`: the timing model is fetched
+   * (fraction > 0) or loaded from the device. `timing`: it runs over the recording. `matching`:
+   * the words are placed and matched to the passage, and saved.
+   */
+  | { state: 'running'; phase: 'reading' | AlignPhase | 'matching'; fraction: number; startedAt?: number; expectedSeconds?: number }
+  | { state: 'done' }
+  | { state: 'failed'; message: string };
+
+const ALIGNER_SPEED_KEY = 'reading-fluency.aligner-seconds-per-second';
+
+/** Seconds this device took to time each second of the last recording; a guess for the next. */
+function alignerSpeed(): number | undefined {
+  try {
+    const v = Number(localStorage.getItem(ALIGNER_SPEED_KEY));
+    return v > 0 ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberAlignerSpeed(secondsPerSecond: number) {
+  try {
+    localStorage.setItem(ALIGNER_SPEED_KEY, String(secondsPerSecond));
+  } catch {
+    // No storage (a private window, say): the next estimate waits for the model's first report.
+  }
+}
+
 export type Screen =
   | { name: 'roster' }
   | { name: 'student'; studentId: Id }
@@ -33,6 +79,7 @@ export type Screen =
   | { name: 'recording' }
   | { name: 'done'; readingId: Id }
   | { name: 'review'; readingId: Id }
+  | { name: 'mark'; readingId: Id }
   | { name: 'passages' }
   | { name: 'settings' };
 
@@ -106,6 +153,7 @@ export class App {
       storage.listReadings(),
       storage.getSettings(),
     ]);
+    await this.pinReadingsToVersions();
     if (this.settings.readingInProgress) {
       this.lostReading = this.settings.readingInProgress;
       await this.saveSettings({ ...this.settings, readingInProgress: undefined });
@@ -264,14 +312,29 @@ export class App {
     return created;
   }
 
+  /** Readings that were read against the passage's latest version. */
+  private readingsOfLatest(passage: Passage) {
+    return this.readings.filter((r) => !isDiscarded(r) && r.passageId === passage.id && r.passageVersion === latestVersion(passage));
+  }
+
+  /** Words nobody has read yet change in place; words some reading used become a new passage version (ADR-0007). */
   async updatePassage(id: Id, title: string, text: string, source?: PassageSource) {
     const existing = this.passage(id);
     if (!existing) return;
-    const passage: Passage = { ...existing, title: title.trim(), text, wordCount: countWords(text), ...(source ? { source } : {}) };
+    const inUse = this.readingsOfLatest(existing);
+    const passage = revisePassage(existing, { title, text, source, at: this.now() }, inUse.length > 0);
     await this.deps.storage.putPassage(plain(passage));
     this.passages = this.passages.map((p) => (p.id === id ? passage : p));
     this.dataChanged();
-    for (const r of this.readings) if (r.passageId === id) await this.realign(r.id);
+    // A new version leaves every reading on the words it was read against; an in-place edit may move where they ended.
+    if (latestVersion(passage) === latestVersion(existing)) for (const r of inUse) await this.realign(r.id);
+  }
+
+  /** Bring an older passage version's words back as the latest. */
+  async restorePassageVersion(id: Id, version: number) {
+    const passage = this.passage(id);
+    const old = passage && versionOf(passage, version);
+    if (passage && old) await this.updatePassage(id, passage.title, old.text, old.source);
   }
 
   async deletePassage(id: Id) {
@@ -280,6 +343,14 @@ export class App {
     this.dataChanged();
     for (const r of this.readings) {
       if (r.passageId === id) await this.saveReading(withPassage(r, undefined));
+    }
+  }
+
+  /** Readings saved before passage versions existed were read against what is now each passage's latest version. */
+  private async pinReadingsToVersions() {
+    for (const r of this.readings) {
+      const passage = this.passage(r.passageId);
+      if (passage && r.passageVersion === undefined) await this.saveReading({ ...r, passageVersion: latestVersion(passage) });
     }
   }
 
@@ -356,10 +427,12 @@ export class App {
     this.closeMicrophone();
     this.pendingStart = undefined;
     const duration = capture.samples.length / capture.sampleRate;
+    const passage = this.passage(passageId);
     const reading: Reading = {
       id: newId(),
       studentId,
-      passageId,
+      passageId: passage?.id,
+      ...(passage ? { passageVersion: latestVersion(passage) } : {}),
       recordedAt: this.now(),
       hasAudio: true,
       sampleRate: capture.sampleRate,
@@ -389,7 +462,8 @@ export class App {
   async setPassage(readingId: Id, passageId: Id | undefined) {
     const r = this.reading(readingId);
     if (!r) return;
-    await this.saveReading(withPassage(r, passageId));
+    // Picking the passage it already has keeps the version the student read.
+    if (passageId !== r.passageId) await this.saveReading(withPassage(r, this.passage(passageId)));
     await this.realign(readingId);
   }
 
@@ -407,6 +481,103 @@ export class App {
   async setErrors(readingId: Id, errors: number | undefined) {
     const r = this.reading(readingId);
     if (r) await this.saveReading({ ...r, errors });
+  }
+
+  // ---- marking: reviewing the transcript (ADR-0010) --------------------
+
+  /** Start reviewing: a draft from the recogniser's words, unless there is already a review of this version. */
+  async openReview(readingId: Id) {
+    const r = this.reading(readingId);
+    const version = r && versionReadBy(r, this.passage(r.passageId));
+    if (!r || !version || !canReview(r)) return;
+    if (r.reviewedTranscript?.passageVersion !== version.version || r.reviewedTranscript.formatVersion !== 2) {
+      const review = draftReview(r.transcript!, version.text, version.version);
+      await this.saveReading({ ...r, reviewedTranscript: review, marks: deriveMarks(review), markedAt: undefined });
+    }
+    if (!this.reading(readingId)?.reviewedTranscript?.alignedBy) void this.alignReview(readingId);
+  }
+
+  /**
+   * Apply one change to the review. The marks are re-derived from it, and the reading is
+   * marked exactly while nothing is left undecided and every paragraph has been heard; that
+   * replaces any older count.
+   */
+  changeReview(readingId: Id, change: (review: ReviewedTranscript, ctx: ReviewContext) => ReviewedTranscript) {
+    // One after another: a tick and the next paragraph's "heard" can land together, and each must see the other.
+    this.reviewQueue = this.reviewQueue.then(() => this.applyReviewChange(readingId, change));
+    return this.reviewQueue;
+  }
+
+  private reviewQueue: Promise<void> = Promise.resolve();
+
+  private async applyReviewChange(readingId: Id, change: (review: ReviewedTranscript, ctx: ReviewContext) => ReviewedTranscript) {
+    const r = this.reading(readingId);
+    const version = r && versionReadBy(r, this.passage(r.passageId));
+    if (!r || !version || !r.reviewedTranscript || !canReview(r)) return;
+    const review = change(r.reviewedTranscript, { text: version.text, sections: passageParagraphs(version.text), em: this.emissionsCache.get(readingId), duration: r.sampleCount / r.sampleRate });
+    if (review === r.reviewedTranscript) return;
+    await this.saveReviewed(r, review);
+  }
+
+  private async saveReviewed(r: Reading, review: ReviewedTranscript) {
+    const reviewed = isFullyReviewed(review);
+    await this.saveReading({
+      ...r,
+      reviewedTranscript: review,
+      marks: deriveMarks(review),
+      markedAt: reviewed ? (r.markedAt ?? this.now()) : undefined,
+      errors: reviewed ? undefined : r.errors,
+    });
+  }
+
+  // ---- forced alignment (ADR-0010) --------------------------------------
+
+  /**
+   * Per reading being timed: how far the model has got, or why it could not. While timing,
+   * when it started and (from how fast this device timed the last recording) how long it
+   * should take, so progress can move between the model's reports.
+   */
+  alignment = $state<Record<Id, AlignmentState>>({});
+
+  /** Whether words can be placed in the audio at all: without a model, marking starts on the recogniser's times. */
+  get canAlign(): boolean {
+    return !!this.deps.aligner;
+  }
+  /** The model's frames for a recording, kept for this session so a paragraph realigns at once. */
+  private emissionsCache = new Map<Id, Emissions>();
+
+  /** Place what was heard in the audio. Never fails the review: without the model, the recogniser's own times stand. */
+  async alignReview(readingId: Id) {
+    const aligner = this.deps.aligner;
+    const r = this.reading(readingId);
+    if (!aligner || !r?.hasAudio || !r.reviewedTranscript) return;
+    let em = this.emissionsCache.get(readingId);
+    if (!em) {
+      if (this.alignment[readingId]?.state === 'running') return;
+      this.alignment = { ...this.alignment, [readingId]: { state: 'running', phase: 'reading', fraction: 0 } };
+      try {
+        const samples = await this.deps.storage.getAudio(readingId);
+        if (!samples) throw new Error('no audio');
+        this.alignment = { ...this.alignment, [readingId]: { state: 'running', phase: 'download', fraction: 0 } };
+        const audioSeconds = samples.length / r.sampleRate;
+        const speed = alignerSpeed();
+        let startedAt: number | undefined;
+        em = await aligner.emissions(samples, r.sampleRate, (phase, fraction) => {
+          if (phase === 'timing' && startedAt === undefined) startedAt = this.now();
+          const timing = phase === 'timing' && startedAt !== undefined ? { startedAt, expectedSeconds: speed === undefined ? undefined : speed * audioSeconds } : {};
+          this.alignment = { ...this.alignment, [readingId]: { state: 'running', phase, fraction, ...timing } };
+        });
+        if (startedAt !== undefined && audioSeconds > 0) rememberAlignerSpeed((this.now() - startedAt) / 1000 / audioSeconds);
+        this.emissionsCache.set(readingId, em);
+      } catch (e) {
+        this.alignment = { ...this.alignment, [readingId]: { state: 'failed', message: e instanceof Error ? e.message : String(e) } };
+        return;
+      }
+    }
+    const found = em;
+    this.alignment = { ...this.alignment, [readingId]: { state: 'running', phase: 'matching', fraction: 0 } };
+    await this.changeReview(readingId, (review, { text }) => alignHeard(review, text, found));
+    this.alignment = { ...this.alignment, [readingId]: { state: 'done' } };
   }
 
   async setNote(readingId: Id, note: string) {
@@ -517,7 +688,8 @@ export class App {
     if (r.analysis === 'transcribed') {
       if (r.transcript && this.passages.length > 0 && !r.passageId) {
         const identification = identifyPassage(tokenize(r.transcript.text), this.passages);
-        r = { ...r, identification, passageId: identification.autoAssigned ? identification.candidates[0].passageId : undefined };
+        const identified = identification.autoAssigned ? this.passage(identification.candidates[0].passageId) : undefined;
+        r = { ...r, identification, passageId: identified?.id, passageVersion: identified && latestVersion(identified) };
       }
       r = { ...r, analysis: 'done' };
       await this.saveReading(r);
@@ -529,13 +701,13 @@ export class App {
   private async realign(readingId: Id) {
     const r = this.reading(readingId);
     if (!r?.transcript) return;
-    const passage = this.passage(r.passageId);
-    if (!passage) {
+    const version = versionReadBy(r, this.passage(r.passageId));
+    if (!version) {
       if (r.completionAssessment || r.transcriptBounds) await this.saveReading(withPassage(r, undefined));
       return;
     }
-    const completionAssessment = assessCompletion(r.transcript.words, passage.text);
-    const transcriptBounds = refineTiming(alignToPassage(r.transcript.words, passage.text), r.transcript.words);
+    const completionAssessment = assessCompletion(r.transcript.words, version.text);
+    const transcriptBounds = refineTiming(alignToPassage(r.transcript.words, version.text), r.transcript.words);
     // Until the teacher has chosen, a reading that probably stopped early loses its default Complete and waits for her.
     const completion = r.completionConfirmed || r.completion === 'discarded' ? r.completion : completionAssessment.probablyIncomplete ? 'pending' : 'complete';
     await this.saveReading({ ...r, completionAssessment, transcriptBounds, completion });
@@ -543,24 +715,34 @@ export class App {
 
   // ---- data ownership --------------------------------------------------
 
-  async exportBackup(): Promise<Snapshot> {
-    const readings = this.readings.map((r) => ({ ...r, hasAudio: false }));
+  async exportBackup(): Promise<Backup> {
+    const audio = new Map<Id, Float32Array>();
+    for (const r of this.readings) {
+      const samples = r.hasAudio ? await this.deps.storage.getAudio(r.id) : undefined;
+      if (samples) audio.set(r.id, samples);
+    }
+    const readings = this.readings.map((r) => ({ ...r, hasAudio: audio.has(r.id) }));
     await this.saveSettings({ ...this.settings, lastBackupAt: this.now() });
-    return { students: this.students, passages: this.passages, readings, settings: { lastBackupAt: this.settings.lastBackupAt } };
+    return { students: this.students, passages: this.passages, readings, settings: { lastBackupAt: this.settings.lastBackupAt }, audio };
   }
 
-  async importBackup(snapshot: Snapshot) {
+  async importBackup(snapshot: Backup) {
     if (!Array.isArray(snapshot.students) || !Array.isArray(snapshot.passages) || !Array.isArray(snapshot.readings)) {
       throw new Error('Not a Growing Reader backup');
     }
-    const readings = snapshot.readings.map((r) => ({ ...r, hasAudio: false }));
+    const readings = snapshot.readings.map((r) => ({ ...r, hasAudio: snapshot.audio.has(r.id) }));
     // A backup is portable data, not authority to connect another browser to a Drive file.
     const settings: Settings = snapshot.settings?.lastBackupAt !== undefined ? { lastBackupAt: snapshot.settings.lastBackupAt } : {};
-    await this.deps.storage.replaceAll(plain({ ...snapshot, readings, settings }));
+    await this.deps.storage.replaceAll(plain({ students: snapshot.students, passages: snapshot.passages, readings, settings }));
+    for (const r of readings) if (r.hasAudio) await this.deps.storage.putAudio(r.id, snapshot.audio.get(r.id)!);
     this.students = snapshot.students;
     this.passages = snapshot.passages;
     this.readings = readings;
     this.settings = settings;
+    await this.pinReadingsToVersions();
+    // A reading the backup caught mid-analysis carries on here, as it would after a reload.
+    this.queue = [];
+    for (const r of readings) if (!isDiscarded(r) && isAnalysing(r)) this.enqueue(r.id);
     this.syncStatus = 'not-synced';
     this.dataChanged();
     void this.refreshStorageUsage();
@@ -765,10 +947,24 @@ function plain<T>(value: T): T {
   return $state.snapshot(value) as T;
 }
 
-/** A reading with its passage changed forgets everything that was aligned against the old one, including a doubt it raised. */
-function withPassage(reading: Reading, passageId: Id | undefined): Reading {
+/**
+ * A reading with its passage changed is read against that passage's latest version, and
+ * forgets everything that was aligned against the old one, including a doubt it raised.
+ */
+function withPassage(reading: Reading, passage: Passage | undefined): Reading {
   const completion = !reading.completionConfirmed && reading.completion === 'pending' ? 'complete' : reading.completion;
-  return { ...reading, passageId, completion, completionAssessment: undefined, transcriptBounds: undefined };
+  return {
+    ...reading,
+    passageId: passage?.id,
+    passageVersion: passage && latestVersion(passage),
+    // Marks, and the review they come from, point at the old passage's words.
+    reviewedTranscript: undefined,
+    marks: undefined,
+    markedAt: undefined,
+    completion,
+    completionAssessment: undefined,
+    transcriptBounds: undefined,
+  };
 }
 
 /** What a discarded reading leaves behind: enough to keep lists and the queue consistent, nothing else. */

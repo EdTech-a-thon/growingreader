@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/svelte';
-import { renderApp, pasteRoster, pastePassage, goTo, recordReading, importPassageForReading } from '../test/harness';
+import { renderApp, pasteRoster, pastePassage, goTo, recordReading, importPassageForReading, setCompletion, completionTicked, recordAgain } from '../test/harness';
 import { FakeTranscriber } from '../adapters/transcriber/FakeTranscriber';
 import { CAMP_CLEAN, CAMP_STOPS_EARLY, CAMP_TEXT, CAMP_TEXT_VARIANT, SHIP_TEXT } from '../test/fixtures/passages';
 import { countWords } from '../analysis';
@@ -17,7 +17,7 @@ async function setUpCampAndShip(h: Awaited<ReturnType<typeof renderApp>>) {
 const rateSection = () => screen.getByRole('heading', { name: /^rate$/i }).parentElement!;
 const timing = () => screen.getByRole('group', { name: /^timing$/i });
 const passageSelect = () => screen.getByRole('button', { name: /^(choose passage|.+ · \d+ words)$/i });
-const markComplete = (h: Awaited<ReturnType<typeof renderApp>>) => h.user.click(screen.getByRole('button', { name: /^complete$/i }));
+const markComplete = (h: Awaited<ReturnType<typeof renderApp>>) => setCompletion(h, 'Complete');
 
 describe('Reviewing a reading', () => {
   test('playback and time are available the instant the teacher unlocks, before any analysis', async () => {
@@ -70,7 +70,7 @@ describe('Reviewing a reading', () => {
     expect(screen.getByText(/identified from the recording/i)).toBeInTheDocument();
     expect(screen.getByText(/heard the student reach the end/i)).toBeInTheDocument();
     // ADR-0002: nothing derived from the transcript is shown as a number.
-    expect(screen.getByRole('heading', { name: /^completion$/i }).parentElement).not.toHaveTextContent(/\d/);
+    expect(screen.getByRole('note', { name: /^completion$/i })).not.toHaveTextContent(/\d/);
   });
 
   test('a reading is complete by default, so the rate appears as soon as the passage is known', async () => {
@@ -79,7 +79,7 @@ describe('Reviewing a reading', () => {
     const h = await renderApp({ transcriber });
     await setUpCampAndShip(h);
     await recordReading(h, 'Ada Lovelace', { seconds: 60 });
-    expect(screen.getByRole('button', { name: /^complete$/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(await completionTicked(h, 'Complete')).toBe(true);
     await waitFor(() => expect(passageSelect()).toHaveTextContent(/^Camp ·/));
     await waitFor(() => expect(screen.getByText(/heard the student reach the end/i)).toBeInTheDocument());
     // Transcript-refined bounds come from the fake's evenly spaced words: 0.5 s to ~10.3 s.
@@ -140,11 +140,11 @@ describe('Reviewing a reading', () => {
     await setUpCampAndShip(h);
     await recordReading(h, 'Ada Lovelace');
     await screen.findByText(/may not have reached the end/i);
-    expect(screen.getByRole('button', { name: /^complete$/i })).toHaveAttribute('aria-pressed', 'false');
+    expect(await completionTicked(h, 'Complete')).toBe(false);
     expect(rateSection()).not.toHaveTextContent(/\d words per minute$/);
     expect((await h.storage.listReadings())[0].completion).toBe('pending');
     await markComplete(h);
-    expect(screen.getByRole('button', { name: /^complete$/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(await completionTicked(h, 'Complete')).toBe(true);
     expect(rateSection()).toHaveTextContent(/words per minute/);
   });
 
@@ -158,8 +158,24 @@ describe('Reviewing a reading', () => {
     await markComplete(h);
     transcriber.finish();
     await screen.findByText(/may not have reached the end/i);
-    expect(screen.getByRole('button', { name: /^complete$/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(await completionTicked(h, 'Complete')).toBe(true);
     expect(rateSection()).toHaveTextContent(/words per minute/);
+  });
+
+  test('accuracy sits with the rate; marking it is the main button; recording again and completion are tucked in the ⋯ menu', async () => {
+    const transcriber = new FakeTranscriber();
+    transcriber.hears(CAMP_CLEAN);
+    const h = await renderApp({ transcriber });
+    await setUpCampAndShip(h);
+    await recordReading(h, 'Ada Lovelace');
+    await waitFor(() => expect(passageSelect()).toHaveTextContent(/^Camp ·/));
+    expect(rateSection()).toHaveTextContent(/not marked yet/i);
+    expect(rateSection()).toHaveTextContent('— accuracy');
+    expect(screen.getByRole('button', { name: /^mark accuracy$/i })).toHaveClass('primary');
+    expect(screen.queryByRole('button', { name: /^record again$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^completion$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^marking$/i })).not.toBeInTheDocument();
+    expect(await completionTicked(h, 'Complete')).toBe(true);
   });
 
   test('marking incomplete removes the rate', async () => {
@@ -170,7 +186,7 @@ describe('Reviewing a reading', () => {
     await recordReading(h, 'Ada Lovelace');
     await waitFor(() => expect(passageSelect()).toHaveTextContent(/^Camp ·/));
     expect(rateSection()).toHaveTextContent(/words per minute/);
-    await h.user.click(screen.getByRole('button', { name: /^incomplete$/i }));
+    await setCompletion(h, 'Incomplete');
     expect(rateSection()).not.toHaveTextContent(/words per minute/);
   });
 
@@ -251,7 +267,7 @@ describe('Reviewing a reading', () => {
     const h = await renderApp({ transcriber });
     await setUpCampAndShip(h);
     await recordReading(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: /record again/i }));
+    await recordAgain(h);
     await h.user.click(screen.getByRole('button', { name: /^back$/i }));
     expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
     await recordReading(h, 'Ada Lovelace');

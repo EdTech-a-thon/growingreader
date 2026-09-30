@@ -83,6 +83,7 @@
       if (!e.relatedTarget) dragDepth = 0;
     };
     const drop = (e: DragEvent) => {
+      if (e.defaultPrevented) return void (dragDepth = 0); // a backup file, taken by the app-wide import
       e.preventDefault();
       e.stopPropagation();
       take(e.dataTransfer?.files);

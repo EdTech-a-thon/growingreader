@@ -36,6 +36,7 @@ export async function renderApp(overrides: Partial<Omit<AppDeps, 'now'>> & { now
     microphone,
     transcriber,
     documents,
+    aligner: overrides.aligner,
     sheets: overrides.sheets,
     broker: overrides.broker,
     clearSheetAuthorization: overrides.clearSheetAuthorization,
@@ -117,7 +118,7 @@ export async function importPassageForReading(h: Harness, fileName: string, text
 }
 
 export async function goTo(h: Harness, nav: 'Roster' | 'Passages' | 'Settings') {
-  await h.user.click(within(screen.getByRole('navigation')).getByRole('button', { name: nav }));
+  await h.user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: nav }));
 }
 
 /** Reach the Start screen: from the roster tap the student (skipped when already on their page), then New reading and the passage step. */
@@ -159,4 +160,24 @@ export async function unlockDoneScreen(h: Harness) {
   await new Promise((r) => setTimeout(r, 60));
   await h.user.pointer({ keys: '[/MouseLeft]', target: unlock });
   await screen.findByRole('heading', { name: /review/i });
+}
+
+/** Say on review whether the student read the whole passage: it lives in the ⋯ menu. */
+export async function setCompletion(h: Harness, state: 'Complete' | 'Incomplete') {
+  await h.user.click(await screen.findByRole('button', { name: 'More' }));
+  await h.user.click(screen.getByRole('menuitemradio', { name: state }));
+}
+
+/** Whether review's ⋯ menu has `state` ticked; the menu is closed again after. */
+export async function completionTicked(h: Harness, state: 'Complete' | 'Incomplete') {
+  await h.user.click(screen.getByRole('button', { name: 'More' }));
+  const ticked = screen.getByRole('menuitemradio', { name: state }).getAttribute('aria-checked') === 'true';
+  await h.user.keyboard('{Escape}');
+  return ticked;
+}
+
+/** Record again, from review's ⋯ menu. */
+export async function recordAgain(h: Harness) {
+  await h.user.click(screen.getByRole('button', { name: 'More' }));
+  await h.user.click(screen.getByRole('menuitem', { name: /record again/i }));
 }

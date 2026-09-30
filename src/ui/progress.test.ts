@@ -59,7 +59,7 @@ describe('Progress over time', () => {
 
   test('one point per complete reading, same-day readings kept separate; incomplete and unreviewed readings stay off', async () => {
     await seeded();
-    expect(screen.getByRole('img', { name: /rate over time: 4 readings/i })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /rate and accuracy over time: 4 readings/i })).toBeInTheDocument();
     expect(chartPoints().map((p) => p.textContent)).toEqual([
       'Sep 1, 2026: 60 words per minute',
       'Sep 8, 2026: 75 words per minute',
@@ -90,14 +90,14 @@ describe('Progress over time', () => {
     const h = await seeded();
     expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new reading/i })).toBeInTheDocument();
-    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
     await h.user.click(screen.getByRole('button', { name: /back to roster/i }));
     expect(screen.getByRole('heading', { name: /roster/i })).toBeInTheDocument();
   });
 
   test('the roster shows each student’s latest reading', async () => {
     const h = await seeded();
-    await h.user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Roster' }));
+    await h.user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'Roster' }));
     expect(screen.getByRole('button', { name: 'Ada Lovelace' })).toHaveAccessibleDescription(/awaiting review/i);
   });
 });
