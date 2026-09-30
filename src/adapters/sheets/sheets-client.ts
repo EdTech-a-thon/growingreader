@@ -1,5 +1,7 @@
 import { displayName } from '../../domain/roster';
 import { activeDuration, rate, wordsCorrectPerMinute } from '../../domain/rate';
+import { accuracy, errorsOf, errorWords, markingState } from '../../domain/marks';
+import { versionReadBy, versionsOf, latestVersion } from '../../domain/passage';
 import { isDiscarded, type Passage, type Reading, type Student } from '../../domain/types';
 
 export const SHEET_TABS = ['Summary', 'Students', 'Readings', 'Passages'] as const;
@@ -60,8 +62,11 @@ export function sheetValues(data: SyncData): SheetValues {
   const readingRows = readings.map((reading) => {
     const student = studentById.get(reading.studentId);
     const passage = passageById.get(reading.passageId ?? '');
+    const version = versionReadBy(reading, passage);
     const wpm = rate(reading, passage);
     const wcpm = wordsCorrectPerMinute(reading, passage);
+    const errors = errorsOf(reading);
+    const readAccuracy = accuracy(reading, passage);
     return [
       reading.id,
       reading.studentId,
@@ -69,15 +74,20 @@ export function sheetValues(data: SyncData): SheetValues {
       iso(reading.recordedAt),
       reading.passageId ?? '',
       passage?.title ?? '',
-      passage?.wordCount ?? '',
+      version?.wordCount ?? '',
       Number(activeDuration(reading).toFixed(1)),
       wpm === undefined ? '' : Number(wpm.toFixed(1)),
-      reading.errors ?? '',
+      errors ?? '',
       wcpm === undefined ? '' : Number(wcpm.toFixed(1)),
       reading.completion,
       reading.transcript?.text ?? '',
       reading.note ?? '',
       reading.analysis,
+      // Added with marking (ADR-0008); appended so existing column positions stay put.
+      version?.version ?? '',
+      MARKED_LABEL[markingState(reading)],
+      readAccuracy === undefined ? '' : Number((readAccuracy * 100).toFixed(1)),
+      errorWords(reading, passage).map((e) => (e.errorType ? `${e.word} (${e.errorType})` : e.word)).join('; '),
     ];
   });
 
@@ -92,12 +102,18 @@ export function sheetValues(data: SyncData): SheetValues {
     Readings: [[
       'id', 'student id', 'student', 'recorded', 'passage id', 'passage', 'passage words', 'seconds',
       'words per minute', 'errors', 'words correct per minute', 'completion', 'transcript', 'note', 'analysis',
+      'passage version', 'marked', 'accuracy %', 'error words',
     ], ...readingRows],
-    Passages: [['id', 'title', 'word count', 'text', 'created', 'from file'], ...passages.map((passage) => [
-      passage.id, passage.title, passage.wordCount, forCell(passage.text), iso(passage.createdAt), passage.source?.fileName ?? '',
-    ])],
+    // One row per passage version, so the text a student actually read is always here (ADR-0007).
+    Passages: [['id', 'title', 'word count', 'text', 'created', 'from file', 'version', 'latest'], ...passages.flatMap((passage) =>
+      versionsOf(passage).map((v) => [
+        passage.id, passage.title, v.wordCount, forCell(v.text), iso(v.createdAt), v.source?.fileName ?? '', v.version, v.version === latestVersion(passage),
+      ]),
+    )],
   };
 }
+
+const MARKED_LABEL = { marked: 'yes', counted: 'counted', unmarked: 'no' } as const;
 
 /**
  * A Sheets cell holds 50,000 characters. Passages are capped well below that when they are

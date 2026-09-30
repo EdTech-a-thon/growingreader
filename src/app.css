@@ -152,6 +152,62 @@ select:focus-visible {
   flex: 0 0 auto;
 }
 
+.topbar-start {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.breadcrumbs {
+  min-width: 0;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumbs li {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+}
+
+.crumb {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+button.crumb:hover {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.crumb.current {
+  color: var(--ink);
+  font-weight: 700;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .breadcrumbs {
+    display: none;
+  }
+}
+
 .topbar-actions {
   min-width: 0;
   display: flex;
@@ -302,6 +358,106 @@ select:focus-visible {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+/* Back to where you came from: a small link, not a button to aim at. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.back-link:hover,
+.back-link:focus-visible {
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* A small menu under a button, for things done now and then (a reading's completion). */
+.menu-anchor {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 12px 30px rgba(28, 43, 34, 0.14);
+}
+
+.menu-rule {
+  margin: 6px 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.menu-label {
+  margin: 4px 8px 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--blue-soft);
+}
+
+.menu-check {
+  display: inline-flex;
+  width: 16px;
+  color: var(--green-dark);
+}
+
+.completion-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.completion-note:empty {
+  display: none;
+}
+
+.completion-note .warn-text {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.rate.unmarked {
+  color: var(--muted);
 }
 
 .eyebrow {
@@ -2730,4 +2886,392 @@ td.num {
 
 .failure-list > li + li {
   margin-top: 4px;
+}
+
+/* ---- marking: reviewing the transcript (ADR-0010) ---------------------- */
+
+/* An editor, not a page: the whole window, listening on the left, marking on the right. */
+.mark-view {
+  width: 100%;
+  padding: 14px 24px 20px;
+}
+
+.mark-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.mark-title h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.mark-title .eyebrow {
+  margin: 2px 0 0;
+}
+
+/* Stacked: the recording on top, the passage being reconstructed below it. */
+/* Full width: the recording needs every pixel so its words fit their boxes. */
+.mark-stack {
+  display: grid;
+  gap: 16px;
+}
+
+/* Work on the left (the recording, then the sentence); the whole passage on the right. */
+.mark-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mark-work {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mark-side {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 16px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+
+.mark-transport {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.mark-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mark-transport .mark-keys {
+  margin: 0;
+}
+
+/* Marking is new: say so, and where to write. */
+.beta-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.beta-pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--yellow-soft);
+  color: var(--amber);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The marks so far, top right: what the check has come to. */
+.mark-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 0 auto;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .mark-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mark-side {
+    position: static;
+    max-height: none;
+  }
+}
+
+.mark-work > .card,
+.mark-stack > .card {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.mark-listen {
+  gap: 12px;
+}
+
+.mark-alignment {
+  margin: 0;
+  min-height: 1.2em;
+}
+
+/* Hearing a spot and saying how it was read. */
+.check-bar {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.check-what {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.check-verdicts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.check-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.check-word > span {
+  font-weight: 700;
+}
+
+.check-said {
+  display: grid;
+  gap: 4px;
+  max-width: 320px;
+  font-size: 0.85rem;
+}
+
+.check-said span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.mark-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skip-button {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--blue);
+  background: none;
+  display: grid;
+  place-items: center;
+}
+
+.skip-button:not(:disabled):hover {
+  background: var(--blue-soft);
+}
+
+.skip-button span {
+  position: absolute;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.mark-controls .player-time {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.mark-keys {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.mark-passage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 4px 0;
+  font-size: 1.25rem;
+  line-height: 2.4;
+  /* A drag across words marks them; it must not select text on the way. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mark-passage p {
+  margin: 0 0 1em;
+}
+
+/* Words, punctuation and the gaps between them are boxes of one height, so a band can join them. */
+.mark-word,
+.mark-punct,
+.mark-gap {
+  display: inline-block;
+  line-height: 1.55;
+  vertical-align: baseline;
+}
+
+.mark-gap {
+  white-space: pre;
+}
+
+.mark-word {
+  position: relative;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: none;
+  font: inherit;
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+.mark-word:hover {
+  background-color: var(--blue-soft);
+}
+
+.mark-word:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.mark-punct {
+  color: var(--muted);
+}
+
+[data-band='error'],
+.mark-word[data-mark='error'] {
+  background-color: var(--danger-soft);
+}
+
+[data-band='self-correction'],
+.mark-word[data-mark='self-correction'] {
+  background-color: var(--yellow-soft);
+}
+
+/* Inside a band only the outer ends are rounded. */
+.mark-passage .joins-prev {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.mark-passage .joins-next {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.mark-punct[data-band] {
+  border-radius: 0;
+}
+
+/*
+ * An error is DIBELS's pencil slash: one 45° stroke of the same size on every word,
+ * across its first letters, rather than a corner-to-corner line that tilts with the word's length.
+ */
+.mark-word[data-mark='error'] {
+  color: var(--danger);
+}
+
+.mark-word[data-mark='error']::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  width: 0.8em;
+  height: 0.8em;
+  transform: translateY(-50%);
+  background: linear-gradient(to bottom right, transparent calc(50% - 1.2px), var(--danger) calc(50% - 1.2px), var(--danger) calc(50% + 1.2px), transparent calc(50% + 1.2px));
+  pointer-events: none;
+}
+
+/* A self-correction is the "SC" written above the word. */
+.mark-word[data-mark='self-correction']::after {
+  content: 'SC';
+  position: absolute;
+  top: -0.95em;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--amber);
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* The counts stay in view however long the passage is. */
+.mark-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.mark-bar-status {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.mark-bar-status h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.mark-bar-status p {
+  margin: 0;
+}
+
+.mark-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green-dark);
+  font-weight: 700;
+}
+
+.mark-bar-note {
+  margin: 0;
+}
+
+/* Narrower than an iPad on its side: one column, the recording kept in view at the top. */
+@media (max-width: 899px) {
+  .mark-view {
+    padding: 12px 16px 24px;
+  }
+
+  .mark-keys {
+    display: none;
+  }
+}
+
+.version-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

@@ -1,6 +1,6 @@
 import type { Id, Passage, Reading, Settings, StorageUsage, Student } from '../../domain/types';
 
-/** Everything the app persists, minus audio: the shape of a backup file. */
+/** Every record the app persists, minus audio (a backup file adds that: domain/backup.ts). */
 export interface Snapshot {
   students: Student[];
   passages: Passage[];
@@ -30,7 +30,7 @@ export interface Storage {
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<void>;
 
-  /** Replace every record with the snapshot and drop all audio (a backup carries none); used by import. */
+  /** Replace every record with the snapshot and drop all audio; import then puts back the backup's recordings. */
   replaceAll(snapshot: Snapshot): Promise<void>;
 
   /** Bytes in use and available, when the platform can say. */

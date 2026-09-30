@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/svelte';
-import { renderApp, pasteRoster, pastePassage, goTo, speechCapture, recordReading, unlockDoneScreen, tapStart, openStart } from '../test/harness';
+import { renderApp, pasteRoster, pastePassage, goTo, speechCapture, recordReading, unlockDoneScreen, tapStart, openStart, recordAgain } from '../test/harness';
 import { FakeMicrophone } from '../adapters/microphone/FakeMicrophone';
 import { MemoryStorage } from '../adapters/storage/MemoryStorage';
 import { CAMP_TEXT } from '../test/fixtures/passages';
@@ -204,7 +204,7 @@ describe('Handing the device to a student', () => {
     const h = await renderApp();
     await pasteRoster(h, 'Ada Lovelace');
     await recordReading(h, 'Ada Lovelace');
-    await h.user.click(screen.getByRole('button', { name: /record again/i }));
+    await recordAgain(h);
     expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^start$/i })).toBeInTheDocument();
   });

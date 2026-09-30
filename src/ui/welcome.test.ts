@@ -10,7 +10,7 @@ describe('first visit', () => {
     expect(screen.getByRole('heading', { name: /see every reader grow/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /you already know how it works/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /student voices stay with you/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /built by teacher\.dev/i })).toHaveAttribute('href', 'https://teacher.dev');
+    for (const link of screen.getAllByRole('link', { name: /built by teacher\.dev/i })) expect(link).toHaveAttribute('href', 'https://teacher.dev');
     expect(screen.queryByRole('heading', { name: /^roster$/i })).not.toBeInTheDocument();
 
     await h.user.click(screen.getByRole('button', { name: /start with your roster/i }));

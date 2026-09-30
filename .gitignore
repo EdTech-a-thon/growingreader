@@ -3,3 +3,5 @@ dist/
 .DS_Store
 *.local
 scripts/mock-broker-state.json
+src/dev/demo-audio/
+src/dev/demo-backup.zip

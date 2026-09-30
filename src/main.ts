@@ -4,6 +4,7 @@ import App from './App.svelte';
 import { IndexedDbStorage } from './adapters/storage/IndexedDbStorage';
 import { WebAudioMicrophone } from './adapters/microphone/WebAudioMicrophone';
 import { WorkerTranscriber } from './adapters/transcriber/WorkerTranscriber';
+import { WorkerAligner } from './adapters/aligner/WorkerAligner';
 import { FileDocumentImporter } from './adapters/documents/FileDocumentImporter';
 import { authBroker } from './adapters/sheets/broker';
 import { clearAuthorization, createGoogleSheetTransport } from './adapters/sheets/google';
@@ -20,13 +21,16 @@ if (import.meta.env.PROD && cfBeacon) {
   document.head.append(script);
 }
 
+const storage = new IndexedDbStorage();
+
 mount(App, {
   target: document.getElementById('app')!,
   props: {
     deps: {
-      storage: new IndexedDbStorage(),
+      storage,
       microphone: new WebAudioMicrophone(),
       transcriber: new WorkerTranscriber(),
+      aligner: new WorkerAligner(),
       documents: new FileDocumentImporter(),
       broker: authBroker,
       sheets: createSheetsClient(createGoogleSheetTransport()),

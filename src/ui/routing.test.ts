@@ -9,6 +9,7 @@ describe('Addresses', () => {
     expect(pathForScreen({ name: 'roster' })).toBe('/');
     expect(pathForScreen({ name: 'student', studentId: 's1' })).toBe('/students/s1');
     expect(pathForScreen({ name: 'review', readingId: 'r1' })).toBe('/readings/r1');
+    expect(pathForScreen({ name: 'mark', readingId: 'r1' })).toBe('/readings/r1/mark');
     expect(pathForScreen({ name: 'passages' })).toBe('/passages');
     expect(pathForScreen({ name: 'settings' })).toBe('/settings');
     // A reading in progress has no address of its own: the URL stays on the student.
@@ -22,6 +23,7 @@ describe('Addresses', () => {
     expect(screenForPath('/passages/')).toEqual({ name: 'passages' });
     expect(screenForPath('/students/abc')).toEqual({ name: 'student', studentId: 'abc' });
     expect(screenForPath('/readings/r1')).toEqual({ name: 'review', readingId: 'r1' });
+    expect(screenForPath('/readings/r1/mark')).toEqual({ name: 'mark', readingId: 'r1' });
     expect(screenForPath('/about')).toBeUndefined();
     expect(screenForPath('/nope/deeper')).toBeUndefined();
   });

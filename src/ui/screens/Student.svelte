@@ -1,7 +1,8 @@
 <script lang="ts">
   import { useApp } from '../../app/context';
   import { displayName, initials } from '../../domain/roster';
-  import { activeDuration, formatRate, formatSeconds, rate } from '../../domain/rate';
+  import { activeDuration, formatRate, formatSeconds, rate, wordsCorrectPerMinute } from '../../domain/rate';
+  import { accuracy } from '../../domain/marks';
   import { formatDateTime } from '../format';
   import { isAnalysing, type CompletionState } from '../../domain/types';
   import Chart from '../Chart.svelte';
@@ -13,6 +14,7 @@
 
   let { studentId }: { studentId: string } = $props();
   const app = useApp();
+  const percent = (share: number | undefined) => (share === undefined ? '—' : `${Math.round(share * 100)}%`);
   const student = $derived(app.student(studentId));
   const readings = $derived(app.readingsFor(studentId));
   const completionLabel: Record<CompletionState, string> = { pending: 'Awaiting review', complete: 'Complete', incomplete: 'Incomplete', discarded: 'Discarded' };
@@ -31,7 +33,7 @@
     <p>Student not found.</p>
   {:else}
     <div class="back-row">
-      <button class="button secondary" onclick={() => app.go({ name: 'roster' })}><ArrowLeft size={18} aria-hidden="true" />Back to roster</button>
+      <button class="back-link" onclick={() => app.go({ name: 'roster' })}><ArrowLeft size={14} aria-hidden="true" />Back to roster</button>
     </div>
     <LostReadingBanner {studentId} />
     <div class="page-heading">
@@ -49,7 +51,7 @@
     </div>
 
     <section class="card">
-      <h2>Rate over time</h2>
+      <h2>Rate and accuracy over time</h2>
       <Chart {readings} passages={app.passages} onselect={(readingId) => app.go({ name: 'review', readingId })} />
     </section>
 
@@ -60,7 +62,7 @@
       {:else}
         <table>
           <thead>
-            <tr><th>Date</th><th>Passage</th><th>Time</th><th>Rate</th><th>Status</th><th></th></tr>
+            <tr><th>Date</th><th>Passage</th><th>Time</th><th>Rate</th><th>Correct/min</th><th>Accuracy</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {#each readings as r (r.id)}
@@ -70,6 +72,8 @@
                 <td>{passage?.title ?? '—'}</td>
                 <td class="num">{formatSeconds(activeDuration(r))}</td>
                 <td class="num">{formatRate(rate(r, passage))}</td>
+                <td class="num">{formatRate(wordsCorrectPerMinute(r, passage))}</td>
+                <td class="num">{percent(accuracy(r, passage))}</td>
                 <td><span class="status-pill {r.completion}">{completionLabel[r.completion]}</span>{#if isAnalysing(r)}<span class="small muted"> · analysing</span>{/if}</td>
                 <td><button class="button secondary small" onclick={() => app.go({ name: 'review', readingId: r.id })}>Open</button></td>
               </tr>

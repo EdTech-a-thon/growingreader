@@ -60,3 +60,44 @@ test('a passage too long for a Sheets cell is truncated rather than failing the 
   expect(cell.length).toBeLessThanOrEqual(50_000);
   expect(cell).toMatch(/truncated: too long for one cell\]$/);
 });
+
+describe('marking and passage versions in the report', () => {
+  const edited = {
+    ...data.passages[0],
+    text: 'One two three four five.',
+    wordCount: 5,
+    version: 2,
+    versionCreatedAt: Date.UTC(2026, 8, 20),
+    history: [{ version: 1, text: 'One two three four.', wordCount: 4, createdAt: Date.UTC(2026, 8, 2) }],
+  };
+  const marked = {
+    ...data.readings[0],
+    passageVersion: 1,
+    errors: undefined,
+    markedAt: Date.UTC(2026, 8, 16),
+    marks: [
+      { word: 1, kind: 'error' as const, errorType: 'substitution' as const },
+      { word: 2, kind: 'self-correction' as const },
+    ],
+  };
+  const values = sheetValues({ ...data, passages: [edited], readings: [marked] });
+  const column = (name: string) => values.Readings[1][values.Readings[0].indexOf(name)];
+
+  test('a reading row reports the version read, its word count, and what the marks came to', () => {
+    expect(column('passage version')).toBe(1);
+    expect(column('passage words')).toBe(4);
+    expect(column('marked')).toBe('yes');
+    expect(column('errors')).toBe(1);
+    expect(column('accuracy %')).toBe(75);
+    expect(column('error words')).toBe('two (substitution)');
+  });
+
+  test('every passage version has its own row, with the latest flagged', () => {
+    expect(values.Passages.slice(1).map((row) => [row[6], row[2], row[7]])).toEqual([[1, 4, false], [2, 5, true]]);
+  });
+
+  test('new columns come after the old ones, so existing column positions do not move', () => {
+    expect(values.Readings[0].slice(-4)).toEqual(['passage version', 'marked', 'accuracy %', 'error words']);
+    expect(values.Passages[0].slice(0, 6)).toEqual(['id', 'title', 'word count', 'text', 'created', 'from file']);
+  });
+});

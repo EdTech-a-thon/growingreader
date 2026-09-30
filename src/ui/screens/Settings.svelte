@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { SHEETS_SYNC } from '../../app/features';
   import { useApp } from '../../app/context';
   import { readingsCsv } from '../../domain/csv';
+  import { readBackupFile, writeBackupFile } from '../backup-file';
   import { formatBytes, formatDate } from '../format';
   import { downloadBlob } from '../download';
   import Download from '@lucide/svelte/icons/download';
@@ -14,9 +16,8 @@
   let importMessage = $state<string | undefined>(undefined);
 
   async function exportBackup() {
-    const snapshot = await app.exportBackup();
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, `growingreader-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    const blob = await writeBackupFile(await app.exportBackup());
+    downloadBlob(blob, `growingreader-backup-${new Date().toISOString().slice(0, 10)}.zip`);
   }
 
   async function importBackup(e: Event) {
@@ -24,7 +25,7 @@
     const file = input.files?.[0];
     if (!file) return;
     try {
-      await app.importBackup(JSON.parse(await file.text()));
+      await app.importBackup(await readBackupFile(file));
       importMessage = `Imported ${app.students.length} students, ${app.passages.length} passages and ${app.readings.length} readings.`;
     } catch (err) {
       importMessage = `Could not import: ${err instanceof Error ? err.message : String(err)}`;
@@ -43,7 +44,7 @@
     <div class="heading-text">
       <p class="eyebrow">This device</p>
       <h1>Settings</h1>
-      <p class="subtext"><Lock size={14} aria-hidden="true" style="vertical-align:-2px" /> Your data starts in this browser. If you choose Google Sheets sync, roster details and reading results are copied there; audio recordings always stay on this device unless you export one.</p>
+      <p class="subtext"><Lock size={14} aria-hidden="true" style="vertical-align:-2px" /> Your data stays in this browser{SHEETS_SYNC ? '. If you choose Google Sheets sync, roster details and reading results are copied there; audio' : '. Audio'} recordings stay on this device unless you export one or a backup.</p>
     </div>
   </div>
 
@@ -56,13 +57,13 @@
         {:else}
           No backup yet.
         {/if}
-        A backup holds the roster, passages and readings (times, rates, notes) but not audio.
+        A backup holds the roster, passages, readings (times, rates, notes, marks) and their audio, so it can be large. To restore one, import it here or drop the file anywhere in the app.
       </p>
       <div class="inline-actions">
         <button class="button primary" onclick={exportBackup}><Download size={18} aria-hidden="true" />Export backup</button>
         <label class="button secondary file-button">
           <Upload size={18} aria-hidden="true" />Import backup
-          <input type="file" accept="application/json,.json" onchange={importBackup} aria-label="Import backup" />
+          <input type="file" accept="application/zip,.zip,application/json,.json" onchange={importBackup} aria-label="Import backup" />
         </label>
       </div>
       {#if importMessage}
@@ -76,11 +77,13 @@
       <button class="button secondary" onclick={exportCsv}><FileSpreadsheet size={18} aria-hidden="true" />Export CSV</button>
     </section>
 
+    {#if SHEETS_SYNC}
     <section class="card">
       <h2>Google Sheets</h2>
       <p>{app.syncLink ? `Synced as ${app.syncLink.googleEmail || 'your Google account'}. Changes save automatically.` : 'Create a live spreadsheet for the roster, passages, reading stats, notes, and transcripts. Recordings are never included.'}</p>
       <button class="button secondary" onclick={() => app.openSyncDialog()}><CloudUpload size={18} aria-hidden="true" />{app.syncLink ? 'Sync details' : 'Sync to Google Sheets'}</button>
     </section>
+    {/if}
 
     <section class="card">
       <h2>Storage</h2>

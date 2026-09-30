@@ -3,7 +3,9 @@
   import { useApp } from '../../app/context';
   import { displayName } from '../../domain/roster';
   import { activeBounds, activeDuration, autoBounds, autoSource, estimatedRate, formatRate, formatSeconds, rate, wordsCorrectPerMinute } from '../../domain/rate';
-  import type { TimingSource } from '../../domain/types';
+  import { isAnalysing, type TimingSource } from '../../domain/types';
+  import { latestVersion, versionReadBy } from '../../domain/passage';
+  import { accuracy, canMark, canReview, markingState } from '../../domain/marks';
   import { formatDateTime } from '../format';
   import { encodeWav } from '../wav';
   import { downloadBlob } from '../download';
@@ -23,14 +25,20 @@
   import BookOpen from '@lucide/svelte/icons/book-open';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+  import Ellipsis from '@lucide/svelte/icons/ellipsis';
+  import Check from '@lucide/svelte/icons/check';
+  import Target from '@lucide/svelte/icons/target';
 
   let { readingId }: { readingId: string } = $props();
   const app = useApp();
   const reading = $derived(app.reading(readingId));
   const student = $derived(reading ? app.student(reading.studentId) : undefined);
   const passage = $derived(app.passage(reading?.passageId));
+  const version = $derived(reading ? versionReadBy(reading, passage) : undefined);
   const currentRate = $derived(reading ? rate(reading, passage) : undefined);
   const wcpm = $derived(reading ? wordsCorrectPerMinute(reading, passage) : undefined);
+  const readingAccuracy = $derived(reading ? accuracy(reading, passage) : undefined);
+  const markState = $derived(reading ? markingState(reading) : 'unmarked');
   // An estimate stands in only while the exact rate is out of reach; an incomplete reading gets no number at all (ADR-0001).
   const estimate = $derived(reading && currentRate === undefined && (reading.completion === 'pending' || reading.completion === 'complete') ? estimatedRate(reading) : undefined);
   const totalSeconds = $derived(reading ? reading.sampleCount / reading.sampleRate : 0);
@@ -63,6 +71,24 @@
     importedPassage = undefined;
   }
   let confirmingDiscard = $state(false);
+  /** The ⋯ menu: things done now and then, like saying whether the reading was complete. */
+  let menuOpen = $state(false);
+  const markable = $derived(!!reading && !!version && canReview(reading));
+  const markLabel = $derived(markState === 'marked' ? 'Change marks' : 'Mark accuracy');
+  /** Why accuracy cannot be marked yet, when it cannot. */
+  const cannotMark = $derived.by(() => {
+    if (!reading || markable) return undefined;
+    if (!version) return 'Choose the passage first; accuracy is marked on its words.';
+    if (!canMark(reading)) return 'Only a complete reading can be marked.';
+    if (!reading.hasAudio) return 'The audio was deleted. Marking means checking the reading by ear, so it needs the recording.';
+    if (isAnalysing(reading)) return 'Marking starts from the transcript, which is still being made.';
+    return "Marking starts from the app's transcript, and there isn't one for this reading.";
+  });
+
+  function setCompletion(state: 'complete' | 'incomplete') {
+    menuOpen = false;
+    void app.setCompletion(readingId, state);
+  }
   let noteText = $state('');
 
   // Seed the note once per reading; later background saves must not clobber what the teacher is typing.
@@ -145,12 +171,14 @@
   }
 </script>
 
+<svelte:window onclick={(e) => menuOpen && !(e.target as Element | null)?.closest('.menu-anchor') && (menuOpen = false)} onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)} />
+
 <main class="view">
   {#if !reading || !student}
     <p>Reading not found.</p>
   {:else}
     <div class="back-row">
-      <button class="button secondary" onclick={() => app.go({ name: 'student', studentId: reading.studentId })}><ArrowLeft size={18} aria-hidden="true" />Back to {student.firstName}</button>
+      <button class="back-link" onclick={() => app.go({ name: 'student', studentId: reading.studentId })}><ArrowLeft size={14} aria-hidden="true" />Back to {student.firstName}</button>
     </div>
     <div class="page-heading">
       <div class="heading-text">
@@ -161,7 +189,27 @@
         {/if}
       </div>
       <div class="heading-actions">
-        <button class="button primary" onclick={() => app.go({ name: 'start', studentId: reading.studentId, passageId: reading.passageId })}><Mic size={18} aria-hidden="true" />Record again</button>
+        <div class="menu-anchor">
+          <button class="icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}><Ellipsis size={20} /></button>
+          {#if menuOpen}
+            <div class="menu" role="menu" aria-label="More">
+              <button class="menu-item" role="menuitem" onclick={() => ((menuOpen = false), app.go({ name: 'start', studentId: reading.studentId, passageId: reading.passageId }))}>
+                <span class="menu-check"><Mic size={14} /></span>Record again
+              </button>
+              <hr class="menu-rule" />
+              <p class="menu-label">The student read</p>
+              <button class="menu-item" role="menuitemradio" aria-checked={reading.completion === 'complete'} onclick={() => setCompletion('complete')}>
+                <span class="menu-check">{#if reading.completion === 'complete'}<Check size={14} />{/if}</span>Complete
+              </button>
+              <button class="menu-item" role="menuitemradio" aria-checked={reading.completion === 'incomplete'} onclick={() => setCompletion('incomplete')}>
+                <span class="menu-check">{#if reading.completion === 'incomplete'}<Check size={14} />{/if}</span>Incomplete
+              </button>
+            </div>
+          {/if}
+        </div>
+        {#if markable}
+          <button class="button primary" onclick={() => app.go({ name: 'mark', readingId })}><Target size={18} aria-hidden="true" />{markLabel}</button>
+        {/if}
       </div>
     </div>
 
@@ -175,7 +223,10 @@
           <BookOpen size={18} aria-hidden="true" />
           {#if passage}
             <span class="passage-select-title">{passage.title}</span>
-            <span class="muted">· {passage.wordCount} words</span>
+            <span class="muted">· {version?.wordCount ?? passage.wordCount} words</span>
+            {#if version && version.version !== latestVersion(passage)}
+              <span class="muted small">(version {version.version}; the passage has changed since)</span>
+            {/if}
           {:else}
             <span class="passage-select-title">Choose passage</span>
           {/if}
@@ -196,16 +247,28 @@
         {/if}
       </div>
 
+      <p class="completion-note" role="note" aria-label="Completion">
+        {#if reading.completion === 'incomplete'}
+          Marked incomplete: no rate. Change it in the ⋯ menu.
+        {:else if reading.completionAssessment?.probablyIncomplete && reading.completion === 'pending'}
+          <span class="warn-text">The student may not have reached the end of the passage.</span> Listen, then say whether it was complete in the ⋯ menu.
+        {:else if reading.completionAssessment?.probablyIncomplete}
+          The app thought the student may not have reached the end; you said it was complete.
+        {:else if reading.completionAssessment}
+          The app heard the student reach the end of the passage.
+        {/if}
+      </p>
+
       <div class="rate-row">
         <div>
           <h2 class="card-title">Rate</h2>
           {#if currentRate !== undefined}
             <div class="rate-block">
               <p class="rate">{formatRate(currentRate)} <small>words per minute</small></p>
-              {#if wcpm !== undefined}
-                <p class="rate secondary">{formatRate(wcpm)} <small>words correct per minute</small></p>
-              {/if}
+              <p class="rate secondary" class:unmarked={readingAccuracy === undefined}>{readingAccuracy === undefined ? '—' : `${Math.round(readingAccuracy * 100)}%`} <small>accuracy</small></p>
+              <p class="rate secondary" class:unmarked={wcpm === undefined}>{wcpm === undefined ? '—' : formatRate(wcpm)} <small>words correct per minute</small></p>
             </div>
+
           {:else}
             {#if estimate !== undefined}
               <p class="rate estimate">≈{formatRate(estimate)} <small>words per minute, estimated</small></p>
@@ -213,8 +276,16 @@
             {#if !passage}
               <p class={estimate === undefined ? 'rate-prompt' : 'rate-caption'}>Choose a passage to get a rate{estimate !== undefined ? ' from its word count instead of the rough transcript.' : '.'}</p>
             {:else if reading.completion !== 'complete'}
-              <p class={estimate === undefined ? 'rate-prompt' : 'rate-caption'}>{reading.completion === 'pending' ? 'The student may have stopped early; mark the reading complete below to get a rate' : 'Mark the reading complete to get a rate'}{estimate !== undefined ? ' from the passage word count.' : '.'}</p>
+              <p class={estimate === undefined ? 'rate-prompt' : 'rate-caption'}>{reading.completion === 'pending' ? 'The student may have stopped early; say it was complete in the ⋯ menu to get a rate' : 'Say the reading was complete in the ⋯ menu to get a rate'}{estimate !== undefined ? ' from the passage word count.' : '.'}</p>
             {/if}
+          {/if}
+          {#if currentRate !== undefined && readingAccuracy === undefined && markable}
+            <p class="rate-caption">{reading.reviewedTranscript ? 'Marking started, not finished: mark accuracy to finish it.' : 'Not marked yet: mark accuracy to get accuracy and words correct per minute.'}</p>
+          {/if}
+          {#if cannotMark && markState !== 'marked'}
+            <p class="rate-caption">{cannotMark}</p>
+          {:else if markState === 'counted'}
+            <p class="rate-caption">{reading.errors} {reading.errors === 1 ? 'error' : 'errors'} counted before marking existed; mark accuracy to replace the count.</p>
           {/if}
         </div>
         <div class="time-block">
@@ -248,7 +319,7 @@
         <Waveform samples={audioSamples} duration={totalSeconds} {bounds} auto={autoBounds(reading)} {playhead} onseek={seek} onchange={(b) => app.setBounds(readingId, b)} />
       {:else}
         <p class="subtext" style="margin-bottom:10px">Audio deleted; the timing and rate are kept.</p>
-        <Waveform samples={undefined} duration={totalSeconds} {bounds} auto={autoBounds(reading)} onchange={(b) => app.setBounds(readingId, b)} />
+        <Waveform samples={undefined} duration={totalSeconds} {bounds} auto={autoBounds(reading)} empty="No recording kept for this reading." onchange={(b) => app.setBounds(readingId, b)} />
       {/if}
 
       <div class="timing-line" role="group" aria-label="Timing">
@@ -260,24 +331,7 @@
     </section>
 
     <div class="review-grid">
-      <section class="card">
-        <h2>Completion</h2>
-        {#if reading.completionAssessment}
-          {#if reading.completionAssessment.probablyIncomplete}
-            <div class="banner warn-banner"><span class="banner-mark">?</span>The student may not have reached the end of the passage. Listen and decide.</div>
-          {:else}
-            <p class="subtext" style="margin-bottom:12px">The app heard the student reach the end of the passage.</p>
-          {/if}
-        {:else}
-          <p class="subtext" style="margin-bottom:12px">Counted as complete unless you say otherwise.</p>
-        {/if}
-        <div class="chips" role="group" aria-label="Completion">
-          <button class="chip go" aria-pressed={reading.completion === 'complete'} onclick={() => app.setCompletion(readingId, 'complete')}>Complete</button>
-          <button class="chip stop" aria-pressed={reading.completion === 'incomplete'} onclick={() => app.setCompletion(readingId, 'incomplete')}>Incomplete</button>
-        </div>
-      </section>
-
-      <section class="card">
+      <section class="card span-2">
         <h2>Note</h2>
         <div class="field" style="margin-bottom:0">
           <label for="note" class="sr-only">Note</label>

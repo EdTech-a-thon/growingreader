@@ -6,7 +6,10 @@
   import ConvertFileHelp from '../ConvertFileHelp.svelte';
   import { readPassageFiles, type ReadFailure, type ReadPassage } from '../read-files';
   import Modal from '../Modal.svelte';
-  import { isDiscarded } from '../../domain/types';
+  import { isDiscarded, type Passage } from '../../domain/types';
+  import { latestVersion, versionsOf } from '../../domain/passage';
+  import { formatDate } from '../format';
+  import History from '@lucide/svelte/icons/history';
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
   import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -30,6 +33,11 @@
   let fileInput = $state<HTMLInputElement | undefined>(undefined);
 
   const readingsUsing = (passageId: string) => app.readings.filter((r) => r.passageId === passageId && !isDiscarded(r)).length;
+  const readingsOfVersion = (passage: Passage, version: number) =>
+    app.readings.filter((r) => r.passageId === passage.id && r.passageVersion === version && !isDiscarded(r)).length;
+  let historyId = $state<string | undefined>(undefined);
+  let viewingVersion = $state<number | undefined>(undefined);
+  const historyOf = $derived(app.passage(historyId));
   const editing = $derived(app.passage(editingId));
   const previewing = $derived(app.passage(previewingId));
   const dragging = $derived(dragDepth > 0);
@@ -57,8 +65,9 @@
   }
 
   function ondrop(e: DragEvent) {
-    e.preventDefault();
     dragDepth = 0;
+    if (e.defaultPrevented) return; // a backup file, taken by the app-wide import
+    e.preventDefault();
     void take(e.dataTransfer?.files);
   }
 </script>
@@ -138,6 +147,9 @@
               <h2>{passage.title}</h2>
               <span class="word-count">{passage.wordCount} words{passage.source ? ', estimated' : ''}</span>
             </div>
+            {#if latestVersion(passage) > 1}
+              <p class="field-help">Version {latestVersion(passage)}, edited {formatDate(passage.versionCreatedAt ?? passage.createdAt)}. Earlier readings keep the words they were read against.</p>
+            {/if}
             {#if passage.source}
               <p class="field-help">Read from {passage.source.fileName}. Word count estimated — check it against the paper copy.</p>
             {/if}
@@ -152,6 +164,9 @@
               {:else}
                 <button class="button secondary small" onclick={() => (previewingId = passage.id)}><FileText size={16} aria-hidden="true" />View text</button>
                 <button class="button secondary small" onclick={() => (editingId = passage.id)}><Pencil size={16} aria-hidden="true" />Edit</button>
+                {#if latestVersion(passage) > 1}
+                  <button class="button secondary small" onclick={() => ((historyId = passage.id), (viewingVersion = undefined))}><History size={16} aria-hidden="true" />Versions</button>
+                {/if}
                 <button class="button danger small" onclick={() => (confirmDeleteId = passage.id)}><Trash2 size={16} aria-hidden="true" />Delete</button>
               {/if}
             </div>
@@ -206,6 +221,11 @@
 
 {#if editing}
   <Modal title="Edit passage" eyebrow="Passages" wide tall onclose={() => (editingId = undefined)}>
+    {#if readingsOfVersion(editing, latestVersion(editing)) > 0}
+      <p class="field-help" style="margin-bottom:12px">
+        Readings already use these words. Changing the words saves a new version; those readings keep the words, word count and marks they were read against. The title and line breaks change everywhere.
+      </p>
+    {/if}
     <PassageForm
       initialTitle={editing.title}
       initialText={editing.text}
@@ -218,6 +238,39 @@
       }}
       oncancel={() => (editingId = undefined)}
     />
+  </Modal>
+{/if}
+
+{#if historyOf}
+  <Modal title={historyOf.title} eyebrow="Passage versions" wide tall onclose={() => (historyId = undefined)}>
+    <ol class="version-list" reversed>
+      {#each [...versionsOf(historyOf)].reverse() as v (v.version)}
+        {@const latest = v.version === latestVersion(historyOf)}
+        {@const used = readingsOfVersion(historyOf, v.version)}
+        <li class="card" aria-label={`Version ${v.version}`}>
+          <div class="card-head">
+            <h3>Version {v.version}{latest ? ' · handed to students' : ''}</h3>
+            <span class="word-count">{v.wordCount} words</span>
+          </div>
+          <p class="field-help">{formatDate(v.createdAt)} · {used} {used === 1 ? 'reading' : 'readings'}</p>
+          {#if viewingVersion === v.version}
+            <div class="passage-text">{v.text}</div>
+          {/if}
+          <div class="inline-actions">
+            <button class="button secondary small" aria-expanded={viewingVersion === v.version} onclick={() => (viewingVersion = viewingVersion === v.version ? undefined : v.version)}><FileText size={16} aria-hidden="true" />{viewingVersion === v.version ? 'Hide text' : 'View text'}</button>
+            {#if !latest}
+              <button
+                class="button secondary small"
+                onclick={async () => {
+                  await app.restorePassageVersion(historyOf.id, v.version);
+                  historyId = undefined;
+                }}>Restore these words</button
+              >
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ol>
   </Modal>
 {/if}
 

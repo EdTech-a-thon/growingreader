@@ -25,3 +25,23 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   }
   return new Blob([buffer], { type: 'audio/wav' });
 }
+
+/** The samples of a 16-bit PCM WAV file (as encodeWav writes), back to Float32. */
+export function decodeWav(buffer: ArrayBuffer): Float32Array {
+  const view = new DataView(buffer);
+  let offset = 12;
+  while (offset + 8 <= view.byteLength) {
+    const id = String.fromCharCode(...new Uint8Array(buffer, offset, 4));
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'data') {
+      const samples = new Float32Array(Math.min(size, view.byteLength - offset - 8) >> 1);
+      for (let i = 0; i < samples.length; i++) {
+        const s = view.getInt16(offset + 8 + i * 2, true);
+        samples[i] = s < 0 ? s / 0x8000 : s / 0x7fff;
+      }
+      return samples;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  throw new Error('No audio in WAV file');
+}
